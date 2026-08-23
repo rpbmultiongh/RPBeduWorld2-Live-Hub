@@ -323,7 +323,7 @@ function startEditCards(id){
    '<button class="rpw-btn primary" id="ncAdd">Add</button></div>'+
    '<div id="cardList" style="max-height:46vh;overflow:auto"></div>'+
    '<hr class="divider"><div class="row spread"><button class="rpw-btn sm" id="dcExport">Export JSON</button>'+
-   '<button class="rpw-btn sm" id="dcCsv">CSV</button><button class="rpw-btn sm danger" id="dcDel">Delete deck</button></div>');
+   '<button class="rpw-btn sm" id="dcCsv">CSV</button><button class="rpw-btn sm" id="dcAnki" title="Tab-separated file Anki imports directly (File → Import)">Anki</button><button class="rpw-btn sm danger" id="dcDel">Delete deck</button></div>');
   const paint=()=>{
     m.el.querySelector("#cardList").innerHTML=d.cards.length?('<table class="rpw-table"><tbody>'+d.cards.map(c=>
       '<tr><td class="grow"><b>'+esc(c.front)+'</b><br><span class="small muted">'+esc(c.back)+'</span></td>'+
@@ -355,6 +355,12 @@ function startEditCards(id){
   });
   m.el.querySelector("#dcExport").onclick=()=>exportDeckJSON(d);
   m.el.querySelector("#dcCsv").onclick=()=>exportDeckCSV(d);
+  m.el.querySelector("#dcAnki").onclick=()=>{
+    const lines=["#separator:tab","#html:true","#deck:"+d.name+"\n"];
+    d.cards.forEach(c=>lines.push(String(c.front).replace(/\t|\n/g," ").trim()+"\t"+String(c.back).replace(/\t|\n/g," ").trim()));
+    RPW2.download(slug(d.name)+"-anki.txt",lines.join("\n"),"text/plain");
+    toast("Anki file exported — in Anki: File → Import","ok");
+  };
   m.el.querySelector("#dcDel").onclick=async()=>{ m.close(); await delDeck(d.id); };
 }
 

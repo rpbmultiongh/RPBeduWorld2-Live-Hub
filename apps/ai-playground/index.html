@@ -43,9 +43,10 @@
       <select class="rpw-input" id="provSel"></select></div>
     <div class="ai-row" id="baseRow" style="display:none"><label>Custom base URL</label>
       <input class="rpw-input pg-mono" id="baseUrl" placeholder="https://host.example/v1"></div>
-    <div class="ai-row"><label>Model</label>
+    <div class="ai-row"><label>Model <button class="rpw-btn sm ghost" id="btnFetchMdl" style="margin-left:8px">↻ Fetch latest models</button></label>
       <input class="rpw-input pg-mono" id="modelInp" list="modelList" placeholder="model-id">
-      <datalist id="modelList"></datalist></div>
+      <datalist id="modelList"></datalist>
+      <div class="tiny muted" id="mdlInfo"></div></div>
     <div class="ai-grid2">
       <div class="ai-row"><label>Temperature · <span id="tempVal">0.9</span></label>
         <input type="range" id="tempRange" min="0" max="2" step="0.05" value="0.9"></div>
@@ -63,6 +64,7 @@
       <button class="rpw-btn sm ghost" data-pre='quiz'>quiz</button>
       <button class="rpw-btn sm ghost" data-pre='lesson'>lesson plan</button>
       <button class="rpw-btn sm ghost" data-pre='summarize'>summarizer</button>
+      <button class="rpw-btn sm ghost" id="btnSavePre" title="Save current system+user prompts & JSON mode as a preset (shift-click a saved preset to delete)">＋ Save preset</button>
     </div>
   </div>
 
@@ -105,7 +107,7 @@ provSel.innerHTML=Object.entries(PROVIDERS).map(([id,p])=>
 function paintProv(){
  const p=provSel.value,P=PROVIDERS[p];
  $("#baseRow").style.display=p==="custom"?"block":"none";
- $("#modelList").innerHTML=P.models.map(m=>`<option value="${m}">`).join("");
+ fillModels(p);
  if(!$("#modelInp").value.trim()||$("#modelInp").dataset.forp!==p){
    $("#modelInp").value=(CFG.models[p]||CFG.defaults[p]||"");
    $("#modelInp").dataset.forp=p;
@@ -115,12 +117,28 @@ function paintProv(){
  paintEng();
 }
 function paintEng(){ $("#engLbl").textContent=RPW2.AI.activeLabel(); }
-provSel.onchange=paintProv;
+function fillModels(p){
+ const l=RPW2.AI.modelOptionsFor(p);
+ $("#modelList").innerHTML=l.map(m=>`<option value="${m}">`).join("");
+ $("#mdlInfo").textContent=l.length?(l.length+" models known"+(RPW2.AI.catalogOf(p).length?" (live catalog cached)":"")):"";
+}
+async function fetchModels(){
+ const p=provSel.value,btn=$("#btnFetchMdl");
+ btn.disabled=true;btn.textContent="Fetching…";
+ try{
+  const l=await RPW2.AI.listModels(p);
+  fillModels(p);
+  RPW2.toast(l.length?("Loaded "+l.length+" live models from "+PROVIDERS[p].name):("Provider returned no models — check key/base URL"),l.length?"ok":"info");
+ }catch(e){RPW2.toast("Model fetch failed: "+e.message,"err");}
+ btn.disabled=false;btn.textContent="↻ Fetch latest models";
+}
+$("#btnFetchMdl").onclick=fetchModels;
+provSel.onchange=()=>{paintProv();if(RPW2.AI.hasKey(provSel.value)&&!RPW2.AI.catalogOf(provSel.value).length)fetchModels();};
 $("#baseUrl").value=CFG.baseUrl||"";
 $("#tempRange").oninput=e=>$("#tempVal").textContent=e.target.value;
 paintProv();
 
-$("#btnSettings").onclick=()=>RPW2.AI.settingsModal(()=>{paintProv();paintEng();
+$("#btnSettings").onclick=()=>RPW2.AI.settingsModal(()=>{fillModels(CFG.provider);paintProv();paintEng();
  provSel.innerHTML=Object.entries(PROVIDERS).map(([id,p])=>`<option value="${id}" ${id===CFG.provider?"selected":""}>${p.name}${RPW2.AI.hasKey(id)?"  ✓":""}</option>`).join("");paintProv();});
 $("#btnSaveCfg").onclick=()=>{
  const p=provSel.value;
@@ -138,10 +156,40 @@ const PRESETS={
  lesson:{u:'Draft a mini lesson plan on "Supply and demand": objectives, hook, direct instruction, practice, exit ticket.',s:"You are a curriculum designer.",j:"no"},
  summarize:{u:'Summarize: Photosynthesis converts light energy into chemical energy stored in glucose. Chlorophyll absorbs light, water is split, oxygen is released, and carbon dioxide is fixed into sugars.',s:"",j:"no"}
 };
+const CUSTOM_PRESETS=(()=>{let c=RPW2.store.get("rpw2.ai.playground.presets",{});return{
+ all:()=>c,
+ add(n,d){c[n]=d;RPW2.store.set("rpw2.ai.playground.presets",c);paintCustomPresets();},
+ del(n){delete c[n];RPW2.store.set("rpw2.ai.playground.presets",c);paintCustomPresets();}
+};})();
+function applyPre(d){$("#userP").value=d.u;$("#sysP").value=d.s||"";$("#jsonMode").value=d.j||"no";}
 document.querySelectorAll("#presets [data-pre]").forEach(b=>{
- b.onclick=()=>{const k=b.dataset.pre,p=PRESETS[k];
-  $("#userP").value=p.u;$("#sysP").value=p.s;$("#jsonMode").value=p.j;};
+ b.onclick=()=>applyPre(PRESETS[b.dataset.pre]);
 });
+function paintCustomPresets(){
+ document.querySelectorAll("[data-cpre]").forEach(el=>el.remove());
+ const names=Object.keys(CUSTOM_PRESETS.all());
+ if(!names.length)return;
+ const holder=document.createDocumentFragment();
+ names.forEach(n=>{
+  const b=document.createElement("button");
+  b.className="rpw-btn sm ghost";b.dataset.cpre=n;b.title="Shift-click to delete";
+  b.textContent="★ "+n;
+  b.onclick=e=>{
+   if(e.shiftKey){CUSTOM_PRESETS.del(n);return;}
+   applyPre(CUSTOM_PRESETS.all()[n]);
+  };
+  holder.appendChild(b);
+ });
+ $("#presets").appendChild(holder);
+}
+$("#btnSavePre").onclick=()=>{
+ const u=$("#userP").value.trim();
+ if(!u){RPW2.toast("Write a prompt first","err");return;}
+ let n=prompt("Preset name:");if(!n)return;n=n.trim().slice(0,24);if(!n)return;
+ CUSTOM_PRESETS.add(n,{u,s:$("#sysP").value,j:$("#jsonMode").value});
+ RPW2.toast("Preset saved: "+n,"ok");
+};
+paintCustomPresets();
 
 /* ---------- history ---------- */
 const HK="rpw2.ai.playground.history";

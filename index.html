@@ -22,7 +22,11 @@
 <header class="rpw-topbar">
   <a class="rpw-home" href="./index.html"><b>⬡ RPW²</b></a>
   <div class="rpw-app-title"></div>
-  <div class="rpw-topbar-actions"><button class="rpw-theme-toggle" aria-label="Toggle theme"></button></div>
+  <div class="rpw-topbar-actions">
+    <button class="rpw-btn sm ghost" id="btnBackup" title="Download all suite data (decks, notes, progress, AI settings…) as a JSON file">⬇ Backup</button>
+    <button class="rpw-btn sm ghost" id="btnRestore" title="Restore a previously downloaded backup file">⬆ Restore</button>
+    <input type="file" id="restoreFile" accept="application/json,.json" style="display:none">
+    <button class="rpw-theme-toggle" aria-label="Toggle theme"></button></div>
 </header>
 <main class="rpw-container">
   <section class="rpw-hero rpw-rise">
@@ -83,6 +87,43 @@ document.addEventListener("keydown",e=>{
 });
 $("#yr").textContent=new Date().getFullYear();
 RPW2.initTopbar("Suite Hub","hexagon");
+
+/* ---------- suite backup / restore ---------- */
+const BK_KEYS=/^(ai\.|rpw2\.|sq\.|mcat\.|wikiscout\.)/;
+function backupData(){
+ const out={_app:"RPBeduWorld2-Suite",_v:2,_exported:new Date().toISOString(),data:{}};
+ for(let i=0;i<localStorage.length;i++){
+  const k=localStorage.key(i);
+  if(BK_KEYS.test(k))out.data[k]=localStorage.getItem(k);
+ }
+ const n=Object.keys(out.data).length;
+ if(!n){RPW2.toast("No suite data found to back up yet.","info");return;}
+ const blob=new Blob([JSON.stringify(out,null,1)],{type:"application/json"});
+ const a=document.createElement("a");
+ a.href=URL.createObjectURL(blob);
+ a.download="rpbeduworld2-backup-"+new Date().toISOString().slice(0,10)+".json";
+ document.body.appendChild(a);a.click();a.remove();
+ setTimeout(()=>URL.revokeObjectURL(a.href),4000);
+ RPW2.toast("Backed up "+n+" data items","ok");
+}
+$("#btnBackup").onclick=()=>{if(confirm("Download a backup of all suite data (progress, decks, notes, AI keys/settings)?"))backupData();};
+$("#btnRestore").onclick=()=>$("#restoreFile").click();
+$("#restoreFile").onchange=e=>{
+ const f=e.target.files[0];e.target.value="";
+ if(!f)return;
+ const r=new FileReader();
+ r.onload=()=>{
+  try{
+   const j=JSON.parse(r.result);
+   if(!j||!j.data||j._app!=="RPBeduWorld2-Suite")throw new Error("not a suite backup file");
+   const ks=Object.keys(j.data);
+   if(!confirm("Restore "+ks.length+" data items?\nThis merges into (and may overwrite) current data."))return;
+   let n=0;ks.forEach(k=>{try{localStorage.setItem(k,j.data[k]);n++;}catch(_){}});
+   RPW2.toast("Restored "+n+" items — reload apps to see them","ok");
+  }catch(err){RPW2.toast("Restore failed: "+err.message,"err");}
+ };
+ r.readAsText(f);
+};
 paint();
 })();
 </script>

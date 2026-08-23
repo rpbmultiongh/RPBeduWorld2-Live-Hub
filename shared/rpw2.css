@@ -308,3 +308,5 @@ html[data-theme="light"] .rpw-badge.err { color: #b31237; }
   body { background: #fff; color: #000; }
   body::before { display: none; }
 }
+.ai-keylink{margin-left:8px;font-size:.78rem;color:var(--acc,#7aa2ff);text-decoration:none;border-bottom:1px dashed currentcolor}
+.ai-keylink:hover{filter:brightness(1.2)}

@@ -29,21 +29,59 @@ document.head.appendChild(css);
 
 /* ---------- provider registry ---------- */
 const PROVIDERS={
- google:{name:"Google Gemini",keyph:"AIza…",models:["gemini-2.0-flash","gemini-2.5-flash","gemini-2.5-pro","gemini-2.0-flash-lite"],link:"aistudio.google.com/apikey"},
- openai:{name:"OpenAI",keyph:"sk-…",models:["gpt-4o-mini","gpt-4o","gpt-4.1-mini"],link:"platform.openai.com/api-keys"},
- groq:{name:"Groq",keyph:"gsk_…",models:["llama-3.3-70b-versatile","llama-3.1-8b-instant","mixtral-8x7b-32768"],link:"console.groq.com/keys"},
- openrouter:{name:"OpenRouter",keyph:"sk-or-…",models:["meta-llama/llama-3.3-70b-instruct:free","google/gemini-2.0-flash-exp:free","deepseek/deepseek-chat"],link:"openrouter.ai/keys"},
+ google:{name:"Google Gemini",keyph:"AIza…",keyUrl:"https://aistudio.google.com/apikey",keyHint:"free tier",
+  models:["gemini-3.6-flash","gemini-3.5-flash","gemini-3.5-flash-lite","gemini-3.1-flash-lite","gemini-3.1-pro-preview"]},
+ openai:{name:"OpenAI",keyph:"sk-…",keyUrl:"https://platform.openai.com/api-keys",keyHint:"paid",
+  models:["gpt-5.4-mini","gpt-5.6-luna","gpt-5.6-terra","gpt-5.6-sol","gpt-5.4-nano","gpt-5.2"]},
+ groq:{name:"Groq",keyph:"gsk_…",keyUrl:"https://console.groq.com/keys",keyHint:"generous free tier",
+  models:["openai/gpt-oss-120b","openai/gpt-oss-20b","qwen/qwen3.6-27b"]},
+ openrouter:{name:"OpenRouter",keyph:"sk-or-…",keyUrl:"https://openrouter.ai/settings/keys",keyHint:"many :free models",
+  models:["openrouter/auto","google/gemini-3-flash-preview","deepseek/deepseek-chat-v3.1:free","meta-llama/llama-4-maverick:free"]},
  custom:{name:"Custom (OpenAI-compatible)",keyph:"sk-… or token",models:[],link:"your endpoint /v1/chat/completions"}
 };
 const CFG={
  provider:store.get("ai.provider","google"),
  keys:store.get("ai.keys",{}),
  models:store.get("ai.models",{}),
- defaults:{google:"gemini-2.0-flash",openai:"gpt-4o-mini",groq:"llama-3.3-70b-versatile",openrouter:"meta-llama/llama-3.3-70b-instruct:free",custom:""},
+ defaults:{google:"gemini-3.6-flash",openai:"gpt-5.4-mini",groq:"openai/gpt-oss-120b",openrouter:"openrouter/auto",custom:""},
  baseUrl:store.get("ai.baseUrl","")
 };
 function model(){return CFG.models[CFG.provider]||CFG.defaults[CFG.provider]||"";}
 function hasKey(p){p=p||CFG.provider;return !!(CFG.keys[p]&&CFG.keys[p].trim());}
+
+/* ---------- live model catalog ---------- */
+const JUNK=/embed|whisper|tts|guard|moderation|dall-e|image|realtime|transcribe|distil|rerank/i;
+function baseOf(p){
+ if(p==="groq")return "https://api.groq.com/openai/v1";
+ if(p==="openrouter")return "https://openrouter.ai/api/v1";
+ if(p==="openai")return "https://api.openai.com/v1";
+ return (CFG.baseUrl||"").replace(/\/+$/,"");
+}
+async function fetchCatalog(p){
+ p=p||CFG.provider;
+ let list=[];
+ if(p==="google"){
+  const res=await fetch("https://generativelanguage.googleapis.com/v1beta/models?pageSize=1000&key="+encodeURIComponent((CFG.keys.google||"").trim()));
+  if(!res.ok)throw new Error("HTTP "+res.status);
+  const j=await res.json();
+  list=(j.models||[]).filter(m=>(m.supportedGenerationMethods||[]).includes("generateContent")&&!JUNK.test(m.name))
+   .map(m=>m.name.replace(/^models\//,""));
+ }else{
+  const b=baseOf(p);
+  if(!b)throw new Error("Set a base URL first");
+  const h={};
+  if(hasKey(p))h.Authorization="Bearer "+(CFG.keys[p]||"").trim();
+  const res=await fetch(b+"/models",{headers:h});
+  if(!res.ok)throw new Error("HTTP "+res.status+(res.status===404?" — endpoint does not expose /models":""));
+  const j=await res.json();
+  list=((j.data||j.models||[]).map(m=>m.id||m.name)||[]).filter(id=>id&&!JUNK.test(id));
+ }
+ list=[...new Set(list)];
+ if(list.length)store.set("ai.catalog."+p,{t:Date.now(),list:list.slice(0,300)});
+ return list;
+}
+function catalogOf(p){p=p||CFG.provider;const c=store.get("ai.catalog."+p,null);return c?c.list:[];}
+function modelOptionsFor(p){return [...new Set([...((PROVIDERS[p]&&PROVIDERS[p].models)||[]),...catalogOf(p)])];}
 
 /* ---------- unified LLM call ---------- */
 async function callLLM(prompt,o){
@@ -187,17 +225,18 @@ function settingsModal(after){
    function paint(){
     const p=CFG.provider,P=PROVIDERS[p];
     bd.querySelector("#aiProvBody").innerHTML=
-     `<div class="ai-row"><label>API key <span class="muted">(${P.link})</span></label>
-       <div class="row" style="gap:8px"><input class="rpw-input grow" id="aiKeyInp" type="password" placeholder="${P.keyph}" value="${escapeHtml(CFG.keys[p]||"")}">
-       <button class="rpw-btn sm" id="aiTest">Test</button></div>
-       <div class="ai-test-out" id="aiTestOut"></div></div>
-      ${p==="custom"?`<div class="ai-row"><label>Base URL (OpenAI-compatible, incl. /v1)</label>
-       <input class="rpw-input" id="aiBase" placeholder="https://host.example/v1" value="${escapeHtml(CFG.baseUrl||"")}"></div>`:""}
-      <div class="ai-row"><label>Model</label><div class="row" style="gap:8px">
-       ${P.models.length?`<select class="rpw-input grow" id="aiModelSel">${P.models.map(x=>`<option value="${escapeHtml(x)}" ${x===model()?"selected":""}>${escapeHtml(x)}</option>`).join("")}</select>`:""}
-       <input class="rpw-input grow" id="aiModelCustom" placeholder="or type model id" value="${escapeHtml(model())}"></div></div>
-      <div class="row spread mt-2"><button class="rpw-btn ghost danger" id="aiClearKey">Remove key</button>
-       <button class="rpw-btn primary" id="aiSaveCfg">Save & activate</button></div>`;
+      `<div class="ai-row"><label>API key ${P.keyUrl?`<a href="${P.keyUrl}" target="_blank" rel="noopener" class="ai-keylink">Get a key (${P.keyHint}) ↗</a>`:""}</label>
+        <div class="row" style="gap:8px"><input class="rpw-input grow" id="aiKeyInp" type="password" placeholder="${P.keyph}" value="${escapeHtml(CFG.keys[p]||"")}">
+        <button class="rpw-btn sm" id="aiTest">Test</button></div>
+        <div class="ai-test-out" id="aiTestOut"></div></div>
+       ${p==="custom"?`<div class="ai-row"><label>Base URL (OpenAI-compatible, incl. /v1)</label>
+        <input class="rpw-input" id="aiBase" placeholder="https://host.example/v1" value="${escapeHtml(CFG.baseUrl||"")}"></div>`:""}
+       <div class="ai-row"><label>Model <button class="rpw-btn sm ghost" id="aiFetchMdl" style="margin-left:8px">↻ Fetch latest models</button></label>
+        <input class="rpw-input" id="aiModelCustom" list="aiModelDL" placeholder="type or pick a model id" value="${escapeHtml(model())}">
+        <datalist id="aiModelDL">${modelOptionsFor(p).map(x=>`<option value="${escapeHtml(x)}">`).join("")}</datalist>
+        <div class="tiny muted" id="aiCatInfo"></div></div>
+       <div class="row spread mt-2"><button class="rpw-btn ghost danger" id="aiClearKey">Remove key</button>
+        <button class="rpw-btn primary" id="aiSaveCfg">Save & activate</button></div>`;
     bd.querySelectorAll("#aiProvTabs .ai-tab").forEach(b=>b.classList.toggle("on",b.dataset.p===p));
     bd.querySelectorAll("#aiProvTabs .ai-tab").forEach(b=>b.onclick=()=>{CFG.provider=b.dataset.p;store.set("ai.provider",CFG.provider);paint();});
     const tout=bd.querySelector("#aiTestOut");
@@ -211,7 +250,21 @@ function settingsModal(after){
       tout.style.color="#7ef9d2";tout.textContent="✔ "+PROVIDERS[p].name+" responded in "+Math.round(performance.now()-t0)+" ms → "+JSON.stringify(r.slice(0,40));
      }catch(e){tout.style.color="#ff9bad";tout.textContent="✖ "+e.message;}
     };
-    function saveFields(){
+    const catInfo=bd.querySelector("#aiCatInfo");
+     function showCat(n){if(catInfo)catInfo.textContent=n==null?"":n+" models available"+(catalogOf(p).length?" (cached)":"");}
+     showCat(catalogOf(p).length||null);
+     const fb=bd.querySelector("#aiFetchMdl");
+     if(fb)fb.onclick=async()=>{
+      saveFields();
+      fb.disabled=true;fb.textContent="Fetching…";
+      try{const l=await fetchCatalog(p);showCat(l.length);
+       bd.querySelector("#aiModelDL").innerHTML=l.map(x=>`<option value="${escapeHtml(x)}">`).join("");
+       toast(l.length?("Loaded "+l.length+" models from "+PROVIDERS[p].name):"No models returned","ok");
+      }catch(e){toast("Could not load models: "+e.message,"err");showCat(null);}
+      fb.disabled=false;fb.textContent="↻ Fetch latest models";
+     };
+     if(hasKey(p)&&!catalogOf(p).length&&fb)setTimeout(()=>fb.click(),50);
+     function saveFields(){
      CFG.keys[p]=bd.querySelector("#aiKeyInp").value.trim();
      const sel=bd.querySelector("#aiModelSel"),cus=bd.querySelector("#aiModelCustom");
      CFG.models[p]=(cus&&cus.value.trim())||(sel?sel.value:"")||CFG.defaults[p]||"";
@@ -294,7 +347,7 @@ function attachFab(onClick,label){
 RPW2.AI={
  AI:{get key(){return CFG.keys[CFG.provider]||"";},cfg:CFG,providers:PROVIDERS},
  PROVIDERS,CFG,callLLM,extractJSON,generate,settingsModal,keyModal,studio,attachFab,
- hasKey,model,activeLabel,
+ hasKey,model,activeLabel,listModels:fetchCatalog,catalogOf,modelOptionsFor,
  gen:Object.assign({rng,pick,shuf,kw,T,gloss},gen)
 };
 })();
