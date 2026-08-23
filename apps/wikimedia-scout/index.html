@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark" style="--app-hue1:#3282b8;--app-hue2:#bbe1fa">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Wikimedia Scout · RPBeduWorld2</title>
+<meta name="description" content="Search Wikimedia Commons (free API), curate image collections and export beautiful reports.">
+<link rel="icon" href="../../shared/favicon.svg">
+<link rel="stylesheet" href="../../shared/rpw2.css">
+<style>
+  .img-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(180px,1fr)); gap:12px; }
+  .img-card { border-radius:13px; overflow:hidden; border:1px solid var(--glass-brd); background:var(--input-bg); transition:all .18s ease; }
+  .img-card:hover{transform:translateY(-4px);box-shadow:var(--glow);}
+  .img-card img { width:100%; height:130px; object-fit:cover; display:block; background:rgba(127,127,127,.1); cursor:zoom-in; }
+  .img-card .cap { padding:8px 10px; font-size:11.5px; line-height:1.45; color:var(--txt-2); }
+  .img-pick { position:absolute; margin:6px; z-index:2; width:26px;height:26px;border-radius:8px;display:none;place-items:center;background:linear-gradient(135deg,var(--app-hue1),var(--app-hue2));color:#fff;border:none;cursor:pointer;}
+  .img-wrap{position:relative;}
+  .img-wrap:hover .img-pick{display:grid;}
+  .picked-badge{position:absolute;top:6px;left:6px;width:24px;height:24px;border-radius:7px;display:grid;place-items:center;background:linear-gradient(135deg,var(--rpw-ok),#16a085);color:#fff;z-index:3;}
+  .coll-item{display:flex;gap:9px;padding:8px;border-radius:10px;border:1px solid var(--glass-brd);margin-bottom:8px;background:var(--input-bg);font-size:12px;align-items:center;}
+  .coll-item img{width:52px;height:40px;object-fit:cover;border-radius:6px;flex:none;}
+</style>
+</head>
+<body>
+<header class="rpw-topbar">
+  <a class="rpw-home" href="../../index.html"><b>⬡ RPW²</b></a>
+  <div class="rpw-app-title"></div>
+  <div class="rpw-topbar-actions">
+    <button class="rpw-btn sm" id="btnCollection">Collection <span class="rpw-badge ok" id="collCount">0</span></button>
+    <button class="rpw-theme-toggle" aria-label="Toggle theme"></button>
+  </div>
+</header>
+<main class="rpw-container">
+  <div class="rpw-hero rpw-rise">
+    <h1>Wikimedia <span class="grad">Scout</span></h1>
+    <p>Scour Wikimedia Commons for openly-licensed images and forge citation-ready reports — MD · HTML · JSON.</p>
+  </div>
+
+  <section class="rpw-panel mb-3 rpw-rise">
+    <div class="row wrap">
+      <div class="rpw-search-wrap"><span id="icoS"></span><input class="rpw-input" data-rpw-search id="q" placeholder="Search Commons… e.g. mitochondrion diagram  ( / )"></div>
+      <select class="rpw-select" id="licenseFilter" style="max-width:190px">
+        <option value="">Any free license</option>
+        <option value="cc0">CC0 / Public domain</option>
+        <option value="cc by">CC BY</option>
+        <option value="cc by-sa">CC BY-SA</option>
+      </select>
+      <button class="rpw-btn primary" id="btnSearch">Search</button>
+    </div>
+    <div class="tiny faint mt-1">Uses the official Wikimedia Commons API — no key needed. Always verify license & attribution before use.</div>
+  </section>
+
+  <section id="resultsWrap" class="hidden mb-3">
+    <div class="row spread mb-2"><b id="resLbl"></b></div>
+    <div class="img-grid" id="results"></div>
+    <div class="center mt-3"><button class="rpw-btn hidden" id="btnMore">Load more</button></div>
+  </section>
+
+  <!-- collection drawer -->
+  <div id="collModal"></div>
+</main>
+
+<div id="lightbox" class="hidden" style="position:fixed;inset:0;z-index:400;background:rgba(5,8,18,.92);display:grid;place-items:center;padding:20px;cursor:zoom-out">
+  <figure style="max-width:min(94vw,1000px)">
+    <img id="lbImg" style="max-width:100%;max-height:78vh;border-radius:14px" alt="">
+    <figcaption id="lbCap" class="small muted mt-2 center"></figcaption>
+  </figure>
+</div>
+<footer class="rpw-footer">Wikimedia Scout · part of <b>RPBeduWorld2</b> · images © their authors, served via Wikimedia Commons</footer>
+<script src="../../shared/rpw2.js"></script>
+<script>
+(function(){
+"use strict";
+const $=s=>document.querySelector(s);
+$("#icoS").outerHTML=RPW2.icon("search",16);
+RPW2.initTopbar("Wikimedia Scout","globe");
+
+let collection=RPW2.store.get("wikiscout.collection",[]);
+let continueToken=null,lastQuery="",lastLicense="";
+const API="https://commons.wikimedia.org/w/api.php";
+
+/* ---------- search ---------- */
+async function search(reset){
+  const q=$("#q").value.trim();
+  if(!q){toast("Type a search query","err");return;}
+  if(reset){continueToken=null;$("#results").innerHTML=skeletons();}
+  $("#resultsWrap").classList.remove("hidden");
+  $("#btnMore").disabled=true;
+  lastQuery=q; lastLicense=$("#licenseFilter").value;
+  const gsr="filetype:bitmap"+(lastLicense?" incategory:\"CC-"+lastLicense.replace(/\s+/g,"-")+"\"":" ")+q;
+  const params=new URLSearchParams({
+    action:"query",format:"json",origin:"*",generator:"search",
+    gsrsearch:gsr,
+    gsrnamespace:"6",gsrlimit:"24",prop:"imageinfo",
+    iiprop:"url|extmetadata|size",iiurlwidth:"360",
+    formatversion:"2"
+  });
+  if(!reset&&continueToken)params.set("gsroffset",continueToken);
+  try{
+    const r=await fetch(API+"?"+params);
+    if(!r.ok)throw new Error("HTTP "+r.status);
+    const j=await r.json();
+    const pages=(j.query&&j.query.pages)||[];
+    let shown=0;
+    const grid=$("#results");
+    if(reset)grid.innerHTML="";
+    pages.forEach(p=>{
+      const ii=p.imageinfo&&p.imageinfo[0];
+      if(!ii)return;
+      const meta=ii.extmetadata||{};
+      const lic=((meta.LicenseShortName||{}).value||"").toLowerCase();
+      const lf=$("#licenseFilter").value;
+      if(lf&&!lic.includes(lf))return;
+      shown++;
+      grid.appendChild(imgCard({title:p.title.replace(/^File:/,""),thumb:ii.thumburl||ii.url,full:ii.url,
+        page:ii.descriptionshorturl||("https://commons.wikimedia.org/wiki/"+encodeURIComponent(p.title.replace(/ /g,"_"))),
+        artist:stripTags((meta.Artist||{}).value||"Unknown"),
+        license:(meta.LicenseShortName||{}).value||"—",
+        desc:stripTags((meta.ImageDescription||{}).value||"")}));
+    });
+    if(reset&&!shown){
+      grid.innerHTML='<div class="rpw-empty" style="grid-column:1/-1"><div class="big">🔭</div><h3>No results</h3><p>Try different keywords or relax the license filter.</p></div>';
+    } else if(!shown) toast("No more matching results","info");
+    $("#resLbl").textContent='Results for "'+q+'"'+(shown?" · "+shown+" shown":"");
+    continueToken=j.continue&&j.continue.gsroffset;
+    $("#btnMore").classList.toggle("hidden",!continueToken);
+    $("#btnMore").disabled=false;
+  }catch(e){
+    $("#results").innerHTML='<div class="rpw-empty" style="grid-column:1/-1"><div class="big">📡</div><h3>Search failed</h3><p>'+esc(e.message)+' — check your connection.</p></div>';
+  }
+}
+function stripTags(h){const d=document.createElement("div");d.innerHTML=h||"";return d.textContent.trim().slice(0,120);}
+function skeletons(){return Array(8).fill('<div class="img-card"><div style="height:130px;background:var(--hover)" class="rpw-pulse"></div></div>').join("");}
+
+function imgCard(info){
+  const el=document.createElement("div");
+  el.className="img-card";
+  const picked=collection.some(c=>c.full===info.full);
+  el.innerHTML='<div class="img-wrap">'+
+   (picked?'<span class="picked-badge">'+RPW2.icon("check",13)+"</span>":"")+
+   '<button class="img-pick" title="'+(picked?"In collection":"Add to collection")+'" aria-label="Toggle collection">'+RPW2.icon(picked?"check":"plus",14)+"</button>"+
+   '<img loading="lazy" src="'+esc(info.thumb)+'" alt="'+esc(info.title)+'">'+
+   '</div><div class="cap"><b>'+esc(trunc(info.title,44))+"</b><br>"+esc(info.license)+"</div>";
+  el.querySelector(".img-pick").onclick=e=>{e.stopPropagation();togglePick(info,el);};
+  el.querySelector("img").onclick=()=>{
+    $("#lightbox").classList.remove("hidden");
+    $("#lbImg").src=info.full;
+    $("#lbCap").textContent=info.title+" · "+info.license+" · "+info.artist;
+  };
+  return el;
+}
+function trunc(s,n){return s.length>n?s.slice(0,n)+"…":s;}
+function togglePick(info,el){
+  const i=collection.findIndex(c=>c.full===info.full);
+  if(i>=0){collection.splice(i,1);}
+  else collection.push(Object.assign({added:new Date().toISOString()},info));
+  RPW2.store.set("wikiscout.collection",collection);
+  paintCount();RPW2.sfx.click();
+  // refresh badge on card
+  const wrap=el.querySelector(".img-wrap");
+  wrap.querySelector(".picked-badge,.img-pick")&&null;
+  const has=collection.some(c=>c.full===info.full);
+  const badge=wrap.querySelector(".picked-badge");
+  if(badge&&!has)badge.remove();
+  else if(!badge&&has)wrap.insertAdjacentHTML("afterbegin",'<span class="picked-badge">'+RPW2.icon("check",13)+"</span>");
+}
+function paintCount(){$("#collCount").textContent=collection.length;}
+
+/* ---------- collection modal ---------- */
+$("#btnCollection").onclick=()=>{
+  const m=RPW2.modal("Image collection ("+collection.length+")",
+   '<div style="max-height:50vh;overflow:auto">'+(collection.length?collection.map((c,i)=>
+     '<div class="coll-item"><img src="'+esc(c.thumb)+'" alt=""><div class="grow"><b>'+esc(trunc(c.title,60))+'</b><br><span class="faint tiny">'+esc(c.license)+" · "+esc(trunc(c.artist,40))+"</span></div>"+
+     '<button class="rpw-btn icon-only" data-rm="'+i+'" aria-label="Remove" style="width:28px;height:28px">'+RPW2.icon("x",13)+"</button></div>").join("")
+    :'<div class="rpw-empty"><div class="big">🗂️</div><p>Hover results and hit + to curate your set.</p></div>')+"</div>"+
+   '<hr class="divider"><div class="row wrap"><input class="rpw-input grow" id="repTitle" placeholder="Report title…" value="Wikimedia Image Report">'+
+   '<button class="rpw-btn primary" id="repMd">MD</button><button class="rpw-btn primary" id="repHtml">HTML</button><button class="rpw-btn" id="repJson">JSON</button></div>');
+  m.el.addEventListener("click",e=>{
+    const b=e.target.closest("[data-rm]");
+    if(b){collection.splice(+b.dataset.rm,1);RPW2.store.set("wikiscout.collection",collection);paintCount();m.close();$("#btnCollection").click();}
+  });
+  m.el.querySelector("#repMd").onclick=()=>exportRep("md");
+  m.el.querySelector("#repHtml").onclick=()=>exportRep("html");
+  m.el.querySelector("#repJson").onclick=()=>exportRep("json");
+};
+function exportRep(fmt){
+  if(!collection.length){toast("Collection is empty","err");return;}
+  const title=$("#repTitle")?$("#repTitle").value.trim():"Wikimedia Image Report";
+  const stamp=new Date().toISOString().slice(0,16).replace("T"," ");
+  if(fmt==="json"){
+    RPW2.download(slugify(title)+".report.json",JSON.stringify({schema:"rpw2.wikireport.v1",title,exported:new Date().toISOString(),images:collection},null,2),"application/json");
+  } else if(fmt==="md"){
+    let md="# "+title+"\n\n_Generated "+stamp+" via Wikimedia Scout (RPBeduWorld2)_\n\n";
+    collection.forEach((c,i)=>{md+="## "+(i+1)+". "+c.title+"\n\n!["+c.title+"]("+c.full+")\n\n"+
+      "- Source page: "+c.page+"\n- License: "+c.license+"\n- Author/Artist: "+c.artist+(c.desc?("\n- Description: "+c.desc):"")+"\n\n---\n\n";});
+    RPW2.download(slugify(title)+".md",md,"text/markdown");
+  } else {
+    let h="<!DOCTYPE html>\n<html lang=\"en\"><head><meta charset=\"UTF-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>"+esc(title)+"</title>\n<style>*{box-sizing:border-box;margin:0;padding:0}body{font-family:-apple-system,'Segoe UI',Roboto,sans-serif;line-height:1.7;color:#eaf0ff;background:linear-gradient(160deg,#0b1026,#101736)}main{max-width:900px;margin:0 auto;padding:48px 24px}h1{background:linear-gradient(95deg,#5b8cff,#38e8ff);-webkit-background-clip:text;background-clip:text;color:transparent;font-size:34px}h2{margin:1.6em 0 .4em;font-size:21px;color:#8ec9ff}img{max-width:100%;border-radius:14px;border:1px solid rgba(255,255,255,.12);box-shadow:0 14px 40px rgba(0,0,0,.4)}ul{list-style:none;margin:.6em 0}li{padding:2px 0}a{color:#38e8ff}.meta{color:#93a1c8;font-size:13px}hr{border:none;height:1px;background:rgba(255,255,255,.1);margin:2em 0}</style></head><body><main>\n<h1>"+esc(title)+"</h1>\n<p class=\"meta\">Generated "+stamp+" via Wikimedia Scout · RPBeduWorld2</p>\n";
+    collection.forEach((c,i)=>{h+="<h2>"+(i+1)+". "+esc(c.title)+"</h2>\n<img loading=\"lazy\" src=\""+esc(c.full)+"\" alt=\""+esc(c.title)+"\">\n<ul><li>Source: <a href=\""+esc(c.page)+"\" target=\"blank\" rel=\"noopener\">Wikimedia Commons</a></li><li>License: "+esc(c.license)+"</li><li>Author: "+esc(c.artist)+"</li>"+(c.desc?"<li>"+esc(c.desc)+"</li>":"")+"</ul>\n<hr>\n";});
+    h+="</main></body></html>";
+    RPW2.download(slugify(title)+".html",h,"text/html");
+  }
+  toast("Report exported ("+fmt.toUpperCase()+")","ok");RPW2.sfx.ok();
+}
+function slugify(s){return String(s).toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,"");}
+$("#lightbox").onclick=()=>$("#lightbox").classList.add("hidden");
+$("#btnSearch").onclick=()=>search(true);
+$("#q").addEventListener("keydown",e=>{if(e.key==="Enter")search(true);});
+$("#btnMore").onclick=()=>search(false);
+paintCount();
+})();
+</script>
+</body>
+</html>

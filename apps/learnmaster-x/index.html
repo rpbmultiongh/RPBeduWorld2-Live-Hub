@@ -1,0 +1,371 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark" style="--app-hue1:#27ae60;--app-hue2:#16a085">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LearnMaster X · RPBeduWorld2</title>
+<meta name="description" content="Client-side LMS: courses, lessons, quizzes, gradebook, badges and analytics — no server needed.">
+<link rel="icon" href="../../shared/favicon.svg">
+<link rel="stylesheet" href="../../shared/rpw2.css">
+<style>
+  .course-card { display:flex; flex-direction:column; gap:10px; }
+  .course-banner { height:74px; border-radius:11px; background:linear-gradient(120deg,var(--cb1,#27ae60),var(--cb2,#16a085)); display:flex; align-items:center; justify-content:center; font-size:34px; }
+  .lesson-row { display:flex; align-items:center; gap:12px; padding:12px 14px; border-radius:11px; border:1px solid var(--glass-brd); background:var(--input-bg); margin-bottom:9px; cursor:pointer; transition:all .15s ease; }
+  .lesson-row:hover { border-color:var(--app-hue1); transform:translateX(4px); }
+  .lesson-num { width:32px; height:32px; flex:none; border-radius:50%; display:grid; place-items:center; font-weight:800; font-size:13px; background:var(--panel); border:1px solid var(--glass-brd); }
+  .lesson-num.done { background:linear-gradient(120deg,var(--app-hue1),var(--app-hue2)); color:#fff; border-color:transparent; }
+  .lesson-body h4{font-size:14.5px;} .lesson-body p{font-size:12px;color:var(--txt-3);}
+  .content-html { line-height:1.8; font-size:15px; max-width:780px; margin:0 auto; }
+  .content-html h2,.content-html h3{margin:.8em 0 .3em;} 
+  .badge-tile { text-align:center; padding:13px 8px; border-radius:12px; border:1px solid var(--glass-brd); opacity:.35; filter:grayscale(1); }
+  .badge-tile.earned{opacity:1;filter:none;border-color:rgba(243,156,18,.45);background:rgba(243,156,18,.07);}
+</style>
+</head>
+<body>
+<header class="rpw-topbar">
+  <a class="rpw-home" href="../../index.html"><b>⬡ RPW²</b></a>
+  <div class="rpw-app-title"></div>
+  <div class="rpw-topbar-actions">
+    <button class="rpw-btn sm" id="btnImport">Import course</button>
+    <button class="rpw-btn sm primary" id="btnNewCourse">＋ Course</button>
+    <button class="rpw-theme-toggle" aria-label="Toggle theme"></button>
+  </div>
+</header>
+<main class="rpw-container">
+
+  <!-- ============ LIBRARY ============ -->
+  <section id="viewLibrary">
+    <div class="row wrap spread mb-3">
+      <div class="rpw-search-wrap"><span id="icoSearch"></span><input class="rpw-input" data-rpw-search id="searchC" placeholder="Search courses… ( / )"></div>
+      <div class="rpw-btn-row">
+        <select class="rpw-select" id="tabSelect" style="max-width:170px">
+          <option value="courses">📚 Courses</option>
+          <option value="grades">📊 Gradebook</option>
+          <option value="badges">🏅 Badges</option>
+        </select>
+        <button class="rpw-btn" id="btnExportAll">Export all</button>
+      </div>
+    </div>
+    <div id="kpis" class="rpw-kpis mb-3"></div>
+    <div id="panelCourses">
+      <div id="courseGrid" class="rpw-grid"></div>
+    </div>
+    <div id="panelGrades" class="hidden">
+      <div class="rpw-panel"><div class="rpw-section-title">Quiz performance</div><div id="gradeTable"></div></div>
+    </div>
+    <div id="panelBadges" class="hidden">
+      <div class="rpw-panel"><div class="rpw-section-title">Achievements</div><div id="badgeGrid" class="rpw-grid" style="grid-template-columns:repeat(auto-fill,minmax(130px,1fr))"></div></div>
+    </div>
+  </section>
+
+  <!-- ============ COURSE VIEW ============ -->
+  <section id="viewCourse" class="hidden">
+    <div class="row wrap spread mb-2">
+      <button class="rpw-btn sm ghost" id="btnBackLib">← Library</button>
+      <div class="rpw-btn-row">
+        <button class="rpw-btn sm" id="btnAddLesson">＋ Lesson</button>
+        <button class="rpw-btn sm" id="btnExportCourse">Export</button>
+        <button class="rpw-btn sm danger" id="btnDelCourse">Delete</button>
+      </div>
+    </div>
+    <div class="rpw-hero" style="padding-top:6px">
+      <h1 id="cvTitle" style="font-size:clamp(22px,4vw,34px)"></h1>
+      <p id="cvMeta" class="muted small mt-1"></p>
+      <div class="rpw-progress mt-2" style="max-width:420px;margin-left:auto;margin-right:auto"><div id="cvBar"></div></div>
+    </div>
+    <div id="lessonList" style="max-width:760px;margin:0 auto"></div>
+  </section>
+
+  <!-- ============ LESSON VIEW ============ -->
+  <section id="viewLesson" class="hidden">
+    <div class="row wrap mb-2"><button class="rpw-btn sm ghost" id="btnBackCourse">← Course</button>
+      <span class="muted small" id="lsMeta"></span></div>
+    <div class="rpw-panel rpw-rise">
+      <h2 id="lsTitle" style="margin-bottom:12px"></h2>
+      <div class="content-html muted" id="lsBody"></div>
+      <hr class="divider">
+      <div class="row spread">
+        <label class="small row" style="gap:7px;cursor:pointer"><input type="checkbox" id="lsDone"> Completed</label>
+        <button class="rpw-btn primary" id="btnStartQuiz">Start Quiz →</button>
+      </div>
+    </div>
+    <!-- QUIZ -->
+    <div id="quizBox" class="hidden mt-3">
+      <div class="rpw-panel">
+        <div class="row spread mb-2"><b>Lesson quiz</b><span class="small muted" id="qzProg"></span></div>
+        <div class="rpw-progress mb-3"><div id="qzBar"></div></div>
+        <h3 id="qzQ" class="mb-2" style="font-size:17px"></h3>
+        <div id="qzOpts"></div>
+        <div id="qzDoneWrap" class="hidden center mt-3"></div>
+      </div>
+    </div>
+  </section>
+</main>
+<footer class="rpw-footer">LearnMaster X · part of <b>RPBeduWorld2</b> · a full LMS that lives in your browser</footer>
+<script src="../../shared/rpw2.js"></script>
+<script>
+(function(){
+"use strict";
+const K="learnmaster.courses";
+const $=s=>document.querySelector(s);
+$("#icoSearch").outerHTML=RPW2.icon("search",16);
+RPW2.initTopbar("LearnMaster X","book");
+
+let courses=RPW2.store.get(K,[]);
+let view="library", activeCourse=null, activeLesson=null, quiz=null;
+if(!RPW2.store.get("learnmaster.seeded",false)){
+  courses.push(seedCourse()); RPW2.store.set(K,courses); RPW2.store.set("learnmaster.seeded",true);
+}
+function save(){RPW2.store.set(K,courses);}
+
+function seedCourse(){
+  return {id:RPW2.uid(),title:"Introduction to Eukaryotic Cells",subject:"Biology",emoji:"🧫",created:new Date().toISOString(),
+   lessons:[
+    {id:RPW2.uid(),title:"Cell Theory & Overview",body:"<h3>Cell theory</h3><p>All living organisms are composed of <b>cells</b>, the cell is the basic unit of life, and all cells arise from pre-existing cells.</p><h3>Eukaryotes vs prokaryotes</h3><p>Eukaryotic cells contain a <b>true nucleus</b> and membrane-bound organelles. Prokaryotes (bacteria, archaea) do not.</p>",quiz:[
+      {q:"Which structure defines eukaryotic cells?",options:["True nucleus","Cell wall","Flagellum","Plasmid"],answer:0},
+      {q:"Which organisms are prokaryotes?",options:["Fungi","Bacteria & archaea","Plants","Animals"],answer:1}],
+      done:false,scores:[]},
+    {id:RPW2.uid(),title:"The Nucleus & Genetic Material",body:"<h3>The nucleus</h3><p>The nucleus stores DNA, coordinates replication and transcription. The <b>nucleolus</b> assembles ribosomal subunits.</p><h3>Chromatin</h3><p>DNA wraps around histone proteins forming chromatin, condensing into chromosomes during division.</p>",quiz:[
+      {q:"Ribosomal subunits are assembled in the…",options:["Nucleolus","Golgi apparatus","Lysosome","Centrosome"],answer:0},
+      {q:"DNA wraps around which proteins?",options:["Actin","Tubulin","Histones","Collagen"],answer:2}],
+      done:false,scores:[]},
+    {id:RPW2.uid(),title:"Endomembrane System",body:"<h3>Flow of materials</h3><p>Rough ER synthesizes proteins → Golgi modifies & sorts → vesicles deliver to membrane or become <b>lysosomes</b>.</p><h3>Smooth ER</h3><p>Lipid synthesis, calcium storage, detoxification.</p>",quiz:[
+      {q:"Proteins are modified and sorted in the…",options:["Rough ER","Golgi apparatus","Smooth ER","Nucleolus"],answer:1},
+      {q:"Digestive organelle of the cell",options:["Ribosome","Mitochondrion","Lysosome","Vacuole"],answer:2}],
+      done:false,scores:[]},
+    {id:RPW2.uid(),title:"Energy: Mitochondria & Chloroplasts",body:"<h3>Mitochondria</h3><p>Perform cellular respiration: glucose + O₂ → ATP + CO₂ + H₂O. Have their own DNA (endosymbiotic origin).</p><h3>Chloroplasts</h3><p>In plants/algae: photosynthesis converts light energy into glucose.</p>",quiz:[
+      {q:"ATP is primarily produced in the…",options:["Nucleus","Mitochondrion","Lysosome","Golgi"],answer:1},
+      {q:"Photosynthesis happens in…",options:["Chloroplasts","Mitochondria","Peroxisomes","Ribosomes"],answer:0}],
+      done:false,scores:[]}
+  ]};
+}
+
+/* ---------- views ---------- */
+function show(v){
+  view=v;
+  $("#viewLibrary").classList.toggle("hidden",v!=="library");
+  $("#viewCourse").classList.toggle("hidden",v!=="course");
+  $("#viewLesson").classList.toggle("hidden",v!=="lesson");
+}
+function courseById(id){return courses.find(c=>c.id===id);}
+function courseProgress(c){
+  if(!c.lessons.length)return 0;
+  const d=c.lessons.filter(l=>l.done).length+(c.lessons.some(l=>l.quiz&&l.quiz.length&&l.scores.length)?0:0);
+  return Math.round(c.lessons.filter(l=>l.done).length/c.lessons.length*100);
+}
+
+/* ---------- library ---------- */
+function renderLibrary(){
+  const tab=$("#tabSelect").value;
+  $("#panelCourses").classList.toggle("hidden",tab!=="courses");
+  $("#panelGrades").classList.toggle("hidden",tab!=="grades");
+  $("#panelBadges").classList.toggle("hidden",tab!=="badges");
+  const total=courses.length, lessons=courses.reduce((a,c)=>a+c.lessons.length,0);
+  const done=courses.reduce((a,c)=>a+c.lessons.filter(l=>l.done).length,0);
+  const scores=courses.flatMap(c=>c.lessons.flatMap(l=>l.scores||[]));
+  $("#kpis").innerHTML=[[total,"courses"],[lessons,"lessons"],[done,"completed"],[scores.length?Math.round(scores.reduce((a,b)=>a+b,0)/scores.length)+"%":"—","avg quiz score"]]
+    .map(k=>'<div class="rpw-kpi"><div class="num">'+k[0]+'</div><div class="lbl">'+k[1]+'</div></div>').join("");
+  if(tab==="courses")renderCourses();
+  else if(tab==="grades")renderGrades();
+  else renderBadges();
+}
+function renderCourses(){
+  const q=($("#searchC").value||"").toLowerCase();
+  const grid=$("#courseGrid");grid.innerHTML="";
+  const list=courses.filter(c=>!q||(c.title+" "+c.subject).toLowerCase().includes(q));
+  if(!list.length){grid.innerHTML='<div class="rpw-empty" style="grid-column:1/-1"><div class="big">🎓</div><h3>'+(q?"No matches":"No courses yet")+'</h3><p>Import a course JSON or create one from scratch.</p><button class="rpw-btn primary" onclick="document.getElementById(\'btnImport\').click()">Import course JSON</button></div>';return;}
+  list.forEach((c,i)=>{
+    const p=courseProgress(c), doneN=c.lessons.filter(l=>l.done).length;
+    const el=document.createElement("div");
+    el.className="rpw-card clickable rpw-rise"; el.style.animationDelay=(i*.05)+"s"; el.style.setProperty("--cb1","#27ae60");el.style.setProperty("--cb2","#16a085");
+    el.innerHTML='<div class="course-banner">'+(c.emoji||"📘")+'</div>'+
+      '<h3 class="truncate">'+esc(c.title)+'</h3><span class="tiny faint">'+esc(c.subject||"General")+' · '+c.lessons.length+' lessons</span>'+
+      '<div class="rpw-progress mt-1"><div style="width:'+p+'%"></div></div>'+
+      '<div class="row spread mt-1"><span class="tiny muted">'+doneN+'/'+c.lessons.length+' complete</span>'+
+      '<span class="row" style="gap:5px"><button class="rpw-btn icon-only" data-x="'+c.id+'" aria-label="Delete course">'+RPW2.icon("trash",14)+'</button>'+
+      '<button class="rpw-btn sm primary" data-o="'+c.id+'">Open</button></span></div>';
+    el.onclick=e=>{
+      const t=e.target.closest("[data-x],[data-o]");
+      if(t&&t.dataset.x!==undefined&&t.dataset.x)return delCourse(t.dataset.x);
+      openCourse(t?t.dataset.o:c.id);
+    };
+    grid.appendChild(el);
+  });
+}
+async function delCourse(id){
+  const c=courseById(id);
+  if(await RPW2.confirm({title:"Delete course?",message:'"'+c.title+'" with '+c.lessons.length+' lessons will be removed.',danger:true,yesLabel:"Delete"})){
+    courses=courses.filter(x=>x.id!==id);save();renderLibrary();toast("Course deleted","ok");
+  }
+}
+function renderGrades(){
+  const rows=[];
+  courses.forEach(c=>c.lessons.forEach(l=>(l.scores||[]).forEach(s=>rows.push({course:c.title,lesson:l.title,score:s}))));
+  $("#gradeTable").innerHTML=rows.length?'<table class="rpw-table"><thead><tr><th>Course</th><th>Lesson</th><th>Score</th></tr></thead><tbody>'+
+    rows.map(r=>'<tr><td class="truncate" style="max-width:200px">'+esc(r.course)+'</td><td class="truncate" style="max-width:220px">'+esc(r.lesson)+'</td><td><span class="rpw-badge '+(r.score>=80?"ok":r.score>=50?"warn":"err")+'">'+r.score+'%</span></td></tr>').join("")+"</tbody></table>"
+    :'<div class="rpw-empty"><div class="big">📊</div><p>No quiz attempts yet — take a lesson quiz!</p></div>';
+}
+function renderBadges(){
+  const badges=[
+    ["🌱","First Steps","Complete 1 lesson",()=>countDone()>=1],
+    ["📖","Bookworm","Complete 5 lessons",()=>countDone()>=5],
+    ["🏆","Course Conqueror","Finish an entire course",()=>courses.some(c=>c.lessons.length&&c.lessons.every(l=>l.done))],
+    ["🎯","Sharpshooter","Score 100% on any quiz",()=>courses.flatMap(c=>c.lessons).flatMap(l=>l.scores||[]).some(s=>s===100)],
+    ["🧠","Scholar","Average ≥80% across quizzes",()=>avg()>80],
+    ["🏛️","Architect","Create your own course",()=>courses.length>1]
+  ];
+  $("#badgeGrid").innerHTML=badges.map(b=>'<div class="badge-tile'+(b[3]()?" earned":"")+'"><div style="font-size:30px">'+b[0]+'</div><b class="small">'+b[1]+'</b><p class="tiny faint">'+b[2]+'</p></div>').join("");
+}
+function countDone(){return courses.reduce((a,c)=>a+c.lessons.filter(l=>l.done).length,0);}
+function avg(){const s=courses.flatMap(c=>c.lessons).flatMap(l=>l.scores||[]);return s.length?s.reduce((a,b)=>a+b,0)/s.length:0;}
+
+/* ---------- course view ---------- */
+function openCourse(id){
+  activeCourse=courseById(id); if(!activeCourse)return;
+  show("course"); paintCourse();
+}
+function paintCourse(){
+  const c=activeCourse,p=courseProgress(c),doneN=c.lessons.filter(l=>l.done).length;
+  $("#cvTitle").textContent=(c.emoji?c.emoji+" ":"")+c.title;
+  $("#cvMeta").textContent=c.subject||"General"+" · "+c.lessons.length+" lessons · "+doneN+" completed";
+  $("#cvBar").style.width=p+"%";
+  const box=$("#lessonList");box.innerHTML="";
+  if(!c.lessons.length){box.innerHTML='<div class="rpw-empty"><div class="big">📄</div><h3>No lessons yet</h3><p>Add your first lesson to build this course.</p></div>';return;}
+  c.lessons.forEach((l,i)=>{
+    const el=document.createElement("div");
+    el.className="lesson-row";
+    el.innerHTML='<div class="lesson-num'+(l.done?" done":"")+'">'+(l.done?RPW2.icon("check",14):i+1)+'</div>'+
+      '<div class="grow lesson-body"><h4>'+esc(l.title)+'</h4><p>'+(l.quiz&&l.quiz.length? l.quiz.length+" quiz questions"+(l.scores&&l.scores.length?" · best "+Math.max(...l.scores)+"%":"") : "reading")+'</p></div>'+
+      RPW2.icon("chevronRight",16);
+    el.onclick=()=>openLesson(i);
+    box.appendChild(el);
+  });
+}
+
+/* ---------- lesson view ---------- */
+function openLesson(i){
+  activeLesson=i;
+  const l=activeCourse.lessons[i];
+  show("lesson");$("#quizBox").classList.add("hidden");
+  $("#lsTitle").textContent=l.title;
+  $("#lsBody").innerHTML=l.body||"<p><em>(No content — add body HTML when editing)</em></p>";
+  $("#lsDone").checked=!!l.done;
+  $("#lsDone").onchange=()=>{
+    l.done=$("#lsDone").checked;save();
+    toast(l.done?"Lesson completed ✓":"Marked incomplete","ok");
+    if(l.done)RPW2.confetti();
+  };
+}
+$("#btnBackLib").onclick=()=>{show("library");renderLibrary();};
+$("#btnBackCourse").onclick=()=>show("course");
+
+/* ---------- quiz runner ---------- */
+$("#btnStartQuiz").onclick=()=>{
+  const l=activeCourse.lessons[activeLesson];
+  if(!l.quiz||!l.quiz.length){toast("This lesson has no quiz questions","info");return;}
+  quiz={items:l.quiz,idx:0,score:0,lesson:l};
+  $("#quizBox").classList.remove("hidden");
+  $("#quizBox").scrollIntoView({behavior:"smooth"});
+  paintQZ();
+};
+function paintQZ(){
+  const it=quiz.items[quiz.idx];
+  $("#qzProg").textContent=(quiz.idx+1)+" / "+quiz.items.length;
+  $("#qzBar").style.width=(quiz.idx/quiz.items.length*100)+"%";
+  $("#qzQ").textContent=it.q;
+  $("#qzOpts").innerHTML=it.options.map((o,i)=>'<button class="quiz-opt" data-i="'+i+'" style="display:block;width:100%;text-align:left;padding:12px 15px;margin-bottom:8px;border-radius:10px;border:1px solid var(--glass-brd);background:var(--input-bg);color:var(--txt);cursor:pointer;font-size:14px">'+esc(o)+'</button>').join("");
+  [...$("#qzOpts").children].forEach(b=>b.onclick=()=>{
+    it.options.forEach(()=>{}); 
+    [...$("#qzOpts").children].forEach((el,i)=>{el.disabled=true;if(i===it.answer)el.style.borderColor="var(--rpw-ok)";else if(el===b)el.style.borderColor="var(--rpw-err)";});
+    if(+b.dataset.i===it.answer){quiz.score++;RPW2.sfx.ok();}else RPW2.sfx.err();
+    setTimeout(nextQZ,800);
+  });
+}
+function nextQZ(){
+  quiz.idx++;
+  if(quiz.idx>=quiz.items.length){
+    const pct=Math.round(quiz.score/quiz.items.length*100);
+    quiz.lesson.scores=(quiz.lesson.scores||[]).concat([pct]);
+    quiz.lesson.done=true;save();renderLibrary.__skip=1;
+    $("#qzOpts").innerHTML="";$("#qzQ").textContent="";
+    const w=$("#qzDoneWrap");w.classList.remove("hidden");
+    w.innerHTML='<div style="font-size:46px">'+(pct>=80?"🏆":"💪")+'</div><h3 class="grad-text" style="font-size:26px">'+pct+'%</h3><p class="muted small mt-1">'+quiz.score+' / '+quiz.items.length+' correct — saved to gradebook</p><button class="rpw-btn primary mt-2" onclick="document.getElementById(\'quizBox\').classList.add(\'hidden\');document.getElementById(\'qzDoneWrap\').classList.add(\'hidden\');document.dispatchEvent(new Event(\'qz-done\'));">Finish</button>';
+    if(pct>=80)RPW2.confetti();else RPW2.sfx.level();
+  } else paintQZ();
+}
+document.addEventListener("qz-done",()=>paintCourse());
+
+/* ---------- create/import/export ---------- */
+$("#btnNewCourse").onclick=()=>{
+  const m=RPW2.modal("Create course",
+   '<div class="rpw-field"><label class="rpw-label">Title</label><input class="rpw-input" id="ct" placeholder="e.g. Organic Chemistry I"></div>'+
+   '<div class="row" style="gap:10px"><div class="rpw-field grow"><label class="rpw-label">Subject</label><input class="rpw-input" id="cs" placeholder="Chemistry"></div>'+
+   '<div class="rpw-field" style="width:90px"><label class="rpw-label">Emoji</label><input class="rpw-input" id="ce" value="📘" maxlength="4"></div></div>'+
+   '<div class="row spread"><button class="rpw-btn ghost" data-x>Cancel</button><button class="rpw-btn primary" id="cgo">Create</button></div>');
+  m.el.querySelector("#cgo").onclick=()=>{
+    const t=m.el.querySelector("#ct").value.trim();if(!t){toast("Title required","err");return;}
+    const c={id:RPW2.uid(),title:t,subject:m.el.querySelector("#cs").value.trim()||"General",emoji:m.el.querySelector("#ce").value.trim()||"📘",created:new Date().toISOString(),lessons:[]};
+    courses.unshift(c);save();m.close();openCourse(c.id);toast("Course created — now add lessons","ok");
+  };
+};
+$("#btnAddLesson").onclick=()=>{
+  const m=RPW2.modal("Add lesson to "+esc(activeCourse.title),
+   '<div class="rpw-field"><label class="rpw-label">Lesson title</label><input class="rpw-input" id="lt"></div>'+
+   '<div class="rpw-field"><label class="rpw-label">Content (HTML allowed)</label><textarea class="rpw-textarea" id="lb" style="min-height:150px;font-family:var(--rpw-mono);font-size:12.5px" placeholder="<h3>Heading</h3><p>Paragraph…</p>"></textarea></div>'+
+   '<div class="rpw-field"><label class="rpw-label">Quiz questions — JSON array [{q, options:[...], answer:index}] (optional)</label><textarea class="rpw-textarea" id="lq" style="min-height:90px;font-family:var(--rpw-mono);font-size:12.5px" placeholder=\'[{"q":"What is ATP?","options":["Energy currency","A lipid"],"answer":0}]\'></textarea></div>'+
+   '<div class="row spread"><button class="rpw-btn ghost" data-x>Cancel</button><button class="rpw-btn primary" id="lgo">Add lesson</button></div>');
+  m.el.querySelector("#lgo").onclick=()=>{
+    const t=m.el.querySelector("#lt").value.trim();if(!t){toast("Title required","err");return;}
+    let q=[];const raw=m.el.querySelector("#lq").value.trim();
+    if(raw){try{q=JSON.parse(raw);if(!Array.isArray(q))throw new Error("must be array");}catch(e){toast("Quiz JSON invalid: "+e.message,"err");return;}}
+    activeCourse.lessons.push({id:RPW2.uid(),title:t,body:m.el.querySelector("#lb").value,quiz:q,done:false,scores:[]});
+    save();m.close();paintCourse();toast("Lesson added","ok");
+  };
+};
+$("#btnExportCourse").onclick=()=>{
+  const c=activeCourse;
+  RPW2.download(slugify(c.title)+".course.json",JSON.stringify({schema:"rpw2.course.v1",title:c.title,subject:c.subject,author:"",created:c.created,
+    modules:[{id:"m1",title:c.title,lessons:c.lessons.map(l=>({id:l.id,title:l.title,content:(l.body||"").replace(/<[^>]+>/g," "),quiz:(l.quiz||[]).map(q=>({q:q.q,options:q.options,answerIndex:q.answer}))}))}]},null,2),"application/json");
+  toast("Course exported (universal schema)","ok");
+};
+$("#btnExportAll").onclick=()=>{
+  RPW2.download("learnmaster-all-courses.json",JSON.stringify({exported:new Date().toISOString(),courses},null,2),"application/json");
+  toast("All courses exported","ok");
+};
+$("#btnImport").onclick=async()=>{
+  const f=await RPW2.pickFile(".json,application/json");if(!f)return;
+  try{
+    const j=JSON.parse(await f.text());
+    // accept: internal export {courses:[...]}, universal rpw2.course.v1, legacy LGAI/LMP shapes
+    if(j.courses){ j.courses.forEach(c=>{c.id=RPW2.uid();courses.unshift(c);}); save();renderLibrary();toast(j.courses.length+" course(s) imported","ok");return; }
+    let title=j.title||"Imported course", subject=j.subject||"", lessons=[];
+    const mods=j.modules||[];
+    mods.forEach(mod=>{
+      (mod.lessons||mod.units||[]).forEach(ls=>{
+        let body="",quizArr=[];
+        if(ls.units){ // LMP style
+          ls.units.forEach(u=>{
+            if(u.type==="TEXT")body+="<p>"+esc(u.text||u.content||"")+"</p>";
+            else if(u.type==="IMAGE")body+='<img src="'+esc(u.url||u.src||"")+'" alt="" style="max-width:100%;border-radius:10px">';
+            else if(u.type==="QUIZ"&&u.question)quizArr.push({q:u.question,options:(u.options||[]).map(o=>o.text!=null?o.text:o),answer:u.correctOptionIndex!=null?u.correctOptionIndex:(u.correctIndex||0)});
+          });
+        } else {
+          body="<p>"+esc(typeof ls.content==="string"?ls.content:(ls.content&&ls.content.text)||"")+"</p>";
+          quizArr=(ls.quiz||[]).map(q=>({q:q.q||q.question,options:q.options,answer:q.answerIndex!=null?q.answerIndex:(q.answer||0)}));
+        }
+        lessons.push({id:RPW2.uid(),title:ls.title||"Lesson",body,quiz:quizArr,done:false,scores:[]});
+      });
+    });
+    if(!lessons.length)throw new Error("no lessons found");
+    courses.unshift({id:RPW2.uid(),title,subject,emoji:"📥",created:new Date().toISOString(),lessons});
+    save();renderLibrary();toast('Imported "'+title+'" ('+lessons.length+" lessons)","ok");
+  }catch(e){toast("Import failed: "+e.message,"err");}
+};
+$("#tabSelect").onchange=renderLibrary;
+$("#searchC").oninput=renderLibrary;
+function slugify(s){return String(s).toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,"")||"course";}
+show("library");renderLibrary();
+})();
+</script>
+</body>
+</html>

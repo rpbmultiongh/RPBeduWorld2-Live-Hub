@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark" style="--app-hue1:#0ea5e9;--app-hue2:#22d3ee">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LuminaVault X · RPBeduWorld2</title>
+<meta name="description" content="Your knowledge vault: markdown-ish notes, tags, instant search, pinning, export.">
+<link rel="icon" href="../../shared/favicon.svg">
+<link rel="stylesheet" href="../../shared/rpw2.css">
+<style>
+  .layout { display:grid; grid-template-columns:320px 1fr; gap:16px; align-items:start; }
+  @media (max-width:860px){ .layout{grid-template-columns:1fr;} }
+  .note-list { display:flex; flex-direction:column; gap:9px; max-height:70vh; overflow:auto; padding-right:2px; }
+  .note-item { border-radius:12px; border:1px solid var(--glass-brd); background:var(--input-bg); padding:12px 14px; cursor:pointer; transition:all .15s ease; }
+  .note-item:hover { border-color:var(--app-hue1); transform:translateX(3px); }
+  .note-item.active { border-color:var(--app-hue2); background:linear-gradient(120deg, color-mix(in srgb,var(--app-hue1) 14%, transparent), transparent); box-shadow:var(--glow); }
+  .note-item h4 { font-size:14px; display:flex; align-items:center; gap:6px; }
+  .note-item p { font-size:12px; color:var(--txt-3); margin-top:3px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .pin-dot { color:#f5b041; flex:none; }
+  .tag-chip { display:inline-flex; align-items:center; padding:2px 9px; font-size:11px; border-radius:99px;
+    background:color-mix(in srgb,var(--app-hue2) 13%, transparent); border:1px solid color-mix(in srgb,var(--app-hue2) 28%, transparent); color:var(--txt-2); margin-right:4px; }
+  .editor-title { width:100%; background:transparent; border:none; outline:none; color:var(--txt); font-size:24px; font-weight:800; font-family:inherit; padding:4px 0; border-bottom:1px solid transparent; }
+  .editor-title:focus { border-bottom-color:var(--app-hue1); }
+  .md-body { line-height:1.75; font-size:15px; }
+  .md-body h1,.md-body h2,.md-body h3 { margin:.9em 0 .35em; line-height:1.25; }
+  .md-body h1{font-size:26px} .md-body h2{font-size:21px} .md-body h3{font-size:17px}
+  .md-body code { font-family:var(--rpw-mono); font-size:.88em; background:var(--input-bg); border:1px solid var(--glass-brd); border-radius:6px; padding:1px 6px; }
+  .md-body ul { margin:.5em 0 .5em 1.4em; }
+  .md-body a { color:var(--rpw-accent-2); }
+</style>
+</head>
+<body>
+<header class="rpw-topbar">
+  <a class="rpw-home" href="../../index.html"><b>⬡ RPW²</b></a>
+  <div class="rpw-app-title"></div>
+  <div class="rpw-topbar-actions">
+    <button class="rpw-btn sm" id="btnImport">Import</button>
+    <button class="rpw-btn sm primary" id="btnNew">＋ New Note</button>
+    <button class="rpw-theme-toggle" aria-label="Toggle theme"></button>
+  </div>
+</header>
+<main class="rpw-container">
+  <div class="row wrap mb-3 no-print">
+    <div class="rpw-search-wrap"><span id="searchIco"></span><input class="rpw-input" data-rpw-search id="search" placeholder="Search all notes…  ( / )"></div>
+    <div id="tagFilters" class="row wrap"></div>
+    <button class="rpw-btn sm" id="btnExportAll" title="Export all notes as JSON">Export All</button>
+  </div>
+
+  <div class="layout">
+    <aside class="rpw-panel rpw-rise" style="padding:14px">
+      <div class="row spread mb-2">
+        <span class="bold small" id="listCount"></span>
+        <select class="rpw-select" id="sortBy" style="max-width:150px;padding:5px 10px;font-size:12px">
+          <option value="updated">Recently updated</option>
+          <option value="created">Recently created</option>
+          <option value="title">Title A→Z</option>
+        </select>
+      </div>
+      <div class="note-list" id="noteList"></div>
+    </aside>
+
+    <section class="rpw-panel rpw-rise" id="editorPane" style="animation-delay:.08s">
+      <div id="editorEmpty" class="rpw-empty" style="padding:80px 20px">
+        <div class="big">💎</div><h3>Your Lumina awaits</h3>
+        <p>Select a note or capture a new thought. Notes support markdown-style formatting, tags and instant search.</p>
+        <button class="rpw-btn primary lg" onclick="document.getElementById('btnNew').click()">Create your first note</button>
+      </div>
+      <div id="editor" class="hidden">
+        <div class="row wrap spread mb-2 no-print">
+          <span class="faint tiny" id="saveState"></span>
+          <div class="row wrap">
+            <span class="tiny faint mr-1" id="wordCount"></span>
+            <button class="rpw-btn sm" id="btnPreview" title="Toggle preview">Preview</button>
+            <button class="rpw-btn sm" id="btnPin"></button>
+            <button class="rpw-btn sm" id="btnMdExport">.md</button>
+            <button class="rpw-btn sm danger" id="btnDelete">Delete</button>
+          </div>
+        </div>
+        <input class="editor-title" id="edTitle" placeholder="Untitled note" aria-label="Note title">
+        <textarea class="rpw-textarea mt-2" id="edBody" placeholder="Start writing…&#10;&#10;# Heading&#10;- list item&#10;**bold** · *italic* · `code`" style="min-height:46vh" aria-label="Note body"></textarea>
+        <div class="mt-2" id="previewWrap"><div class="md-body" id="preview"></div></div>
+        <div class="row wrap mt-2 no-print">
+          <span class="tiny bold muted" style="text-transform:uppercase;letter-spacing:.06em">Tags:</span>
+          <span id="tagRow"></span>
+          <input class="rpw-input" id="tagInput" placeholder="add tag + Enter" style="max-width:160px;padding:4px 10px;font-size:12px">
+        </div>
+      </div>
+    </section>
+  </div>
+</main>
+<footer class="rpw-footer">LuminaVault X · part of <b>RPBeduWorld2</b> · autosaves locally, exports anywhere</footer>
+<script src="../../shared/rpw2.js"></script>
+<script>
+(function(){
+"use strict";
+const KEY="luminavault.notes";
+const $=s=>document.querySelector(s);
+$("#searchIco").outerHTML=RPW2.icon("search",16);
+RPW2.initTopbar("LuminaVault X","book");
+
+let notes=RPW2.store.get(KEY,[]);
+let activeId=null, activeTag=null, previewMode=false, saveTimer=null;
+
+/* ---------- seed welcome note once ---------- */
+if(!RPW2.store.get("luminavault.seeded",false)){
+  notes.unshift({id:RPW2.uid(),title:"Welcome to LuminaVault ✨",
+    body:"# Welcome!\n\nThis is your **knowledge vault**.\n\n## Formatting cheatsheet\n- `# H1` · `## H2` · `### H3`\n- **bold**, *italic*, `inline code`\n- `- bullet lists`\n- [links](https://example.org)\n\n## Tips\n- Everything autosaves to this browser\n- Tag notes and filter instantly\n- Press `/` to search from anywhere\n- Export any note as Markdown",
+    tags:["guide"],created:new Date().toISOString(),updated:new Date().toISOString(),pinned:true});
+  RPW2.store.set(KEY,notes); RPW2.store.set("luminavault.seeded",true);
+}
+
+function save(){ RPW2.store.set(KEY,notes); }
+
+function filtered(){
+  const q=($("#search").value||"").toLowerCase();
+  let out=notes.filter(n=>{
+    if(activeTag&&!(n.tags||[]).includes(activeTag))return false;
+    if(q&&!((n.title||"").toLowerCase().includes(q)||(n.body||"").toLowerCase().includes(q)))return false;
+    return true;
+  });
+  const s=$("#sortBy").value;
+  out.sort((a,b)=>(b.pinned?1:0)-(a.pinned?1:0)|| s==="title"
+    ? String(a.title||"").localeCompare(String(b.title||""))
+    : new Date(b[s]||0)-new Date(a[s]||0));
+  return out;
+}
+
+/* ---------- list ---------- */
+function renderList(){
+  const items=filtered(), box=$("#noteList");
+  $("#listCount").textContent=items.length+" note"+(items.length!==1?"s":"")+(activeTag?" · #"+activeTag:"");
+  box.innerHTML="";
+  if(!items.length){
+    box.innerHTML='<div class="rpw-empty" style="padding:34px 10px"><div class="big">🔍</div><h3>Nothing found</h3><p>'+(notes.length?"Adjust search or filters.":"Create your first note!")+'</p></div>';
+    renderTagFilters(); return;
+  }
+  items.forEach(n=>{
+    const el=document.createElement("div");
+    el.className="note-item"+(n.id===activeId?" active":"");
+    el.innerHTML='<h4>'+(n.pinned?'<span class="pin-dot">'+RPW2.icon("star",13)+'</span>':"")+esc(n.title||"Untitled")+'</h4>'+
+      '<p>'+esc(strip((n.body||"")).slice(0,90)||"empty note…")+'</p>'+
+      '<p class="tiny faint">'+RPW2.fmtDate(n.updated)+' · '+wc(n.body||"")+' words</p>';
+    el.onclick=()=>openNote(n.id);
+    box.appendChild(el);
+  });
+  renderTagFilters();
+}
+function strip(s){return s.replace(/[#*`>\-\[\]()]/g," ").replace(/\s+/g," ").trim();}
+function wc(s){return s.trim()?s.trim().split(/\s+/).length:0;}
+
+function renderTagFilters(){
+  const counts={};
+  notes.forEach(n=>(n.tags||[]).forEach(t=>counts[t]=(counts[t]||0)+1));
+  $("#tagFilters").innerHTML=Object.keys(counts).sort().map(t=>
+    '<button class="rpw-chip'+(t===activeTag?" active":"")+'" data-tag="'+esc(t)+'">#'+esc(t)+' <span class="faint">'+counts[t]+'</span></button>').join("");
+}
+$("#tagFilters").addEventListener("click",e=>{
+  const b=e.target.closest("[data-tag]"); if(!b)return;
+  activeTag=activeTag===b.dataset.tag?null:b.dataset.tag;
+  renderList();
+});
+
+/* ---------- editor ---------- */
+function openNote(id){
+  flushSave(); activeId=id; previewMode=false; syncPreviewBtn();
+  const n=notes.find(x=>x.id===id);
+  $("#editorEmpty").classList.add("hidden"); $("#editor").classList.remove("hidden");
+  $("#edTitle").value=n.title||""; $("#edBody").value=n.body||"";
+  $("#previewWrap").classList.add("hidden"); $("#edBody").classList.remove("hidden");
+  renderTags(n); renderList(); updateWordCount();
+}
+function current(){ return notes.find(n=>n.id===activeId); }
+function queueSave(){
+  const n=current(); if(!n)return;
+  $("#saveState").textContent="editing…";
+  clearTimeout(saveTimer);
+  saveTimer=setTimeout(flushSave,800);
+}
+function flushSave(){
+  const n=current(); if(!n)return;
+  const t=$("#edTitle"), b=$("#edBody");
+  if(!t||!b)return;
+  n.title=t.value; n.body=b.value; n.updated=new Date().toISOString();
+  save(); $("#saveState").textContent="saved ✓"; 
+  const item=[...document.querySelectorAll(".note-item")].find(()=>false);
+  renderTags(n); updateWordCount(); renderList();
+}
+function updateWordCount(){ const n=current(); if(n)$("#wordCount").textContent=wc($("#edBody").value)+" words"; }
+function renderTags(n){
+  $("#tagRow").innerHTML=(n.tags||[]).map(t=>'<span class="tag-chip">#'+esc(t)+'<button class="rpw-btn icon-only" data-rm="'+esc(t)+'" style="width:16px;height:16px;padding:0;border:none;background:none;color:inherit" aria-label="Remove tag">'+RPW2.icon("x",10)+'</button></span>').join("");
+}
+$("#tagRow").addEventListener("click",e=>{
+  const b=e.target.closest("[data-rm]"); if(!b)return;
+  const n=current(); n.tags=n.tags.filter(t=>t!==b.dataset.rm); save(); renderTags(n); renderList(); renderTagFilters();
+});
+$("#tagInput").addEventListener("keydown",e=>{
+  if(e.key!=="Enter")return;
+  e.preventDefault();
+  const t=e.target.value.trim().toLowerCase().replace(/^#/,""); if(!t)return;
+  const n=current(); if(!n.tags)n.tags=[];
+  if(!n.tags.includes(t))n.tags.push(t);
+  e.target.value=""; save(); renderTags(n); renderList(); renderTagFilters();
+});
+
+/* mini markdown → safe HTML */
+function md(src){
+  let s=RPW2.escapeHtml(src);
+  s=s.replace(/^### (.*)$/gm,"<h3>$1</h3>").replace(/^## (.*)$/gm,"<h2>$1</h2>").replace(/^# (.*)$/gm,"<h1>$1</h1>");
+  s=s.replace(/\*\*([^*]+)\*\*/g,"<strong>$1</strong>").replace(/\*([^*]+)\*/g,"<em>$1</em>");
+  s=s.replace(/`([^`]+)`/g,"<code>$1</code>");
+  s=s.replace(/\[([^\]]+)\]\((https?:[^)\s]+)\)/g,'<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
+  s=s.replace(/(?:^|\n)((?:[-*] .*(?:\n|$))+)/g,(m,list)=>"\n<ul>"+list.trim().split(/\n/).map(li=>"<li>"+li.replace(/^[-*] /,"")+"</li>").join("")+"</ul>");
+  s=s.split(/\n{2,}/).map(block=>/^<(h\d|ul|li)/.test(block.trim())?block:"<p>"+block.replace(/\n/g,"<br>")+"</p>").join("");
+  return s;
+}
+function syncPreviewBtn(){ $("#btnPreview").classList.toggle("primary",previewMode); }
+$("#btnPreview").onclick=()=>{
+  previewMode=!previewMode; syncPreviewBtn(); flushSave();
+  if(previewMode){ $("#preview").innerHTML=md($("#edBody").value); $("#previewWrap").classList.remove("hidden"); $("#edBody").classList.add("hidden"); }
+  else{ $("#previewWrap").classList.add("hidden"); $("#edBody").classList.remove("hidden"); }
+};
+$("#edBody").addEventListener("input",()=>{queueSave();updateWordCount();});
+$("#edTitle").addEventListener("input",queueSave);
+
+/* ---------- actions ---------- */
+$("#btnNew").onclick=()=>{
+  const n={id:RPW2.uid(),title:"",body:"",tags:[],created:new Date().toISOString(),updated:new Date().toISOString(),pinned:false};
+  notes.unshift(n); save(); openNote(n.id); $("#edTitle").focus();
+};
+$("#btnPin").onclick=()=>{ const n=current(); n.pinned=!n.pinned; save(); paintPin(); renderList(); };
+function paintPin(){ const n=current(); if(n)$("#btnPin").innerHTML=RPW2.icon("star",13)+(n.pinned?" Unpinned":" Pin"); }
+$("#btnDelete").onclick=async()=>{
+  if(await RPW2.confirm({title:"Delete note?",message:'"'+(current().title||"Untitled")+'" will be removed permanently.',danger:true,yesLabel:"Delete"})){
+    notes=notes.filter(n=>n.id!==activeId); save(); activeId=null;
+    $("#editor").classList.add("hidden"); $("#editorEmpty").classList.remove("hidden");
+    toast("Note deleted","ok"); renderList();
+  }
+};
+$("#btnMdExport").onclick=()=>{
+  const n=current();
+  RPW2.download(slugify(n.title||"note")+".md","# "+(n.title||"Untitled")+"\n\n"+n.body,"text/markdown");
+  toast("Markdown exported","ok");
+};
+$("#btnExportAll").onclick=()=>{
+  RPW2.download("luminavault-notes.json",JSON.stringify({schema:"rpw2.notes.v1",exported:new Date().toISOString(),notes},null,2),"application/json");
+  toast("All notes exported","ok");
+};
+$("#btnImport").onclick=async()=>{
+  const f=await RPW2.pickFile(".json,application/json"); if(!f)return;
+  try{
+    const j=JSON.parse(await f.text());
+    const inc=j.notes||(Array.isArray(j)?j:null);
+    if(!inc)throw new Error("no notes array found");
+    let c=0; inc.forEach(src=>{ notes.unshift({id:RPW2.uid(),title:src.title||"",body:src.body||"",tags:src.tags||[],created:src.created||new Date().toISOString(),updated:new Date().toISOString(),pinned:false}); c++; });
+    save(); toast(c+" note(s) imported","ok"); renderList();
+  }catch(e){toast("Import failed: "+e.message,"err");}
+};
+$("#search").oninput=renderList;
+$("#sortBy").onchange=renderList;
+function slugify(s){return String(s).toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,"")||"note";}
+document.addEventListener("keydown",e=>{
+  if((e.metaKey||e.ctrlKey)&&e.key==="s"){e.preventDefault();flushSave();toast("Saved","ok");}
+});
+
+renderList();
+})();
+</script>
+</body>
+</html>

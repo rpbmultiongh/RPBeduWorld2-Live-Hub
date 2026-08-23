@@ -1,0 +1,357 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark" style="--app-hue1:#0984e3;--app-hue2:#00cec9">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Playables Arcade · RPBeduWorld2</title>
+<meta name="description" content="Answer science questions to construct glowing structures — a universal arcade engine with multiple worlds.">
+<link rel="icon" href="../../shared/favicon.svg">
+<link rel="stylesheet" href="../../shared/rpw2.css">
+<style>
+  .world-card { position:relative; overflow:hidden; cursor:pointer; border-radius:16px; border:1px solid var(--glass-brd); background:var(--panel); padding:18px; transition:all .2s ease; }
+  .world-card:hover { transform:translateY(-5px); box-shadow:var(--glow); }
+  .world-card canvas { position:absolute; inset:0; width:100%; height:100%; opacity:.35; pointer-events:none; }
+  .world-card .wc-body { position:relative; }
+  #gameStage { max-width:820px;margin:0 auto; }
+  #cvWrap { position:relative;border-radius:16px;overflow:hidden;border:1px solid var(--glass-brd);background:#050810;box-shadow:var(--shadow); }
+  #gameCv { width:100%;display:block; }
+  .hud { display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between;padding:12px 14px;background:rgba(255,255,255,.03);border-bottom:1px solid var(--glass-brd);font-size:13px; }
+  .qpanel { padding:18px; }
+  .g-opt { display:block;width:100%;text-align:left;padding:11px 14px;margin-bottom:7px;border-radius:10px;border:1px solid var(--glass-brd);background:rgba(255,255,255,.04);color:#eaf0ff;cursor:pointer;font-size:13.5px;transition:all .12s ease; }
+  .g-opt:hover:not(:disabled){border-color:var(--app-hue2);}
+  .g-opt.right{border-color:#2ecc71;background:rgba(46,204,113,.15);}
+  .g-opt.wrong{border-color:#ff4d6d;background:rgba(255,77,109,.12);}
+  .syn-bar{height:14px;border-radius:99px;background:rgba(255,255,255,.06);overflow:hidden;border:1px solid var(--glass-brd);}
+  .syn-fill{height:100%;border-radius:99px;background:linear-gradient(90deg,#0984e3,#00cec9,#55efc4);transition:width .6s cubic-bezier(.22,1,.36,1);box-shadow:0 0 18px rgba(0,206,201,.5);}
+</style>
+</head>
+<body>
+<header class="rpw-topbar">
+  <a class="rpw-home" href="../../index.html"><b>⬡ RPW²</b></a>
+  <div class="rpw-app-title"></div>
+  <div class="rpw-topbar-actions"><button class="rpw-theme-toggle" aria-label="Toggle theme"></button></div>
+</header>
+<main class="rpw-container">
+
+  <!-- WORLD SELECT -->
+  <section id="viewWorlds">
+    <div class="rpw-hero rpw-rise"><h1>Playables <span class="grad">Arcade</span></h1>
+      <p>Answer questions → assemble glowing structures → reach 100% synthesis. Nine worlds of science.</p></div>
+    <div class="row wrap mb-3 no-print">
+      <input class="rpw-input" data-rpw-search id="searchW" placeholder="Search worlds… ( / )" style="max-width:280px">
+      <span class="muted small" id="hsTotal"></span>
+      <button class="rpw-btn sm danger" id="btnResetHS">Reset scores</button>
+    </div>
+    <div class="rpw-grid" id="worldGrid"></div>
+  </section>
+
+  <!-- GAME -->
+  <section id="viewGame" class="hidden">
+    <div id="gameStage">
+      <div class="row spread mb-2">
+        <button class="rpw-btn sm ghost no-print" id="btnExitGame">← Worlds</button>
+        <b id="gameTitle" style="font-size:17px"></b>
+        <span class="tiny faint" id="phaseLbl"></span>
+      </div>
+      <div class="hud">
+        <span>SYNTHESIS <b id="synPct">0%</b></span>
+        <div class="syn-bar grow" style="min-width:140px"><div class="syn-fill" id="synFill" style="width:0%"></div></div>
+        <span>❤️ <b id="livesLbl">3</b></span>
+        <span>⭐ <b id="scoreLbl">0</b></span>
+        <button class="rpw-btn icon-only" id="btnMuteG" aria-label="Toggle sound" style="width:30px;height:30px"></button>
+      </div>
+      <div id="cvWrap"><canvas id="gameCv" height="300"></canvas></div>
+      <div class="rpw-panel qpanel mt-2">
+        <p class="small bold muted" id="qPhaseTitle">QUESTION</p>
+        <h3 id="qText" style="margin-bottom:12px;font-size:16.5px"></h3>
+        <div id="qOpts"></div>
+        <div id="qFeedback" class="hidden small mt-2"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- VICTORY -->
+  <section id="viewVictory" class="hidden">
+    <div class="center rpw-panel" style="max-width:520px;margin:0 auto">
+      <div style="font-size:64px">🏗️✨</div>
+      <h2 class="grad-text" style="font-size:34px">STRUCTURE COMPLETE!</h2>
+      <p class="muted mt-1" id="vicStats"></p>
+      <div class="row mt-3" style="justify-content:center;gap:9px">
+        <button class="rpw-btn primary" id="btnAgain">Play again</button>
+        <button class="rpw-btn ghost" id="btnToWorlds">World select</button>
+      </div>
+    </div>
+  </section>
+</main>
+<footer class="rpw-footer">Playables Arcade · part of <b>RPBeduWorld2</b> · learn by building 🕹️</footer>
+<script src="../../shared/rpw2.js"></script>
+<script>
+(function(){
+"use strict";
+const $=s=>document.querySelector(s);
+RPW2.initTopbar("Playables Arcade","grid");
+
+/* ============ WORLDS & QUESTION BANKS ============ */
+const WORLDS=[
+ {id:"biocore",name:"BIO-CORE: Anatomy & Physiology",ico:"🫀",hue:"#ff4d6d",desc:"Construct a beating anatomical core",shape:"heart",qs:[
+  ["Which chamber pumps blood into the aorta?","Left ventricle",["Right ventricle","Left atrium","Right atrium"]],
+  ["Functional units of the kidney","Nephrons",["Alveoli","Villi","Neurons"]],
+  ["Largest bone in human body","Femur",["Tibia","Humerus","Sternum"]],
+  ["Neurotransmitter at neuromuscular junctions","Acetylcholine",["Dopamine","GABA","Serotonin"]],
+  ["Normal adult resting heart rate range","60–100 bpm",["20–40 bpm","120–160 bpm","150–200 bpm"]],
+  ["Insulin and glucagon are produced in the…","Pancreas",["Liver","Thyroid","Pituitary"]],
+  ["Gas exchange occurs in the…","Alveoli",["Bronchi","Trachea","Diaphragm"]],
+  ["Myelin sheaths speed up…","Action potential conduction",["Muscle contraction","Blood clotting","Digestion"]]]},
+ {id:"silicore",name:"Silicon Core: CPU Architect",ico:"💾",hue:"#74b9ff",desc:"Assemble a quantum-grade processor core",shape:"chip",qs:[
+  ["CPU component that performs arithmetic","ALU",["Cache","Register file","Bus"]],
+  ["RAM stands for…","Random Access Memory",["Rapid Active Module","Read And Memorize","Runtime Allocation Map"]],
+  ["Binary 1011 equals…","11",["13","9","7"]],
+  ["Smallest unit of quantum information","Qubit",["Bit","Byte","Nibble"]],
+  ["Cache memory is used to…","Reduce average access time",["Store permanent files","Cool the CPU","Render graphics"]],
+  ["Moore's law: transistors per chip…","Roughly double every two years",["Halve yearly","Stay constant","Triple monthly"]],
+  ["An instruction set architecture defines…","How software controls the CPU",["Screen resolution","Disk geometry","Network protocols"]],
+  ["Superposition lets a qubit be…","0 and 1 simultaneously",["Only 0","Only 1","Neither ever"]]]},
+ {id:"cellular",name:"Cellular Command: Molecular Architect",ico:"🧫",hue:"#55efc4",desc:"Command construction of a living cell",shape:"cell",qs:[
+  ["Site of protein synthesis","Ribosome",["Lysosome","Vacuole","Centriole"]],
+  ["Organelle packaging proteins for export","Golgi apparatus",["Nucleolus","Smooth ER","Peroxisome"]],
+  ["ATP synthase sits in the inner…","Mitochondrial membrane",["Nuclear envelope","Cell wall","Ribosome"]],
+  ["Cytoskeletal tracks for intracellular transport","Microtubules",["Ribosomes","Chaperones","Ion channels"]],
+  ["Endocytosis brings material…","Into the cell via vesicles",["Out of the cell","Into the nucleus only","Across gap junctions"]],
+  ["Selectively permeable barrier of the cell","Plasma membrane",["Cell wall","Capsule","Nucleolus"]],
+  ["Apoptosis is…","Programmed cell death",["Cell division","Cell migration","Uncontrolled growth"]],
+  ["Osmosis is diffusion of…","Water across a semipermeable membrane",["Ions through channels","Glucose via transporters","Proteins through pores"]]]},
+ {id:"enzyme",name:"Enzymology Command: Catalytic Architect",ico:"⚗️",hue:"#fdcb6e",desc:"Build the ultimate catalytic engine",shape:"hex",qs:[
+  ["Enzymes lower which quantity?","Activation energy",["Reaction enthalpy","Product energy","Temperature"]],
+  ["Induced fit model says the active site…","Changes shape around substrate",["Is rigid always","Docks anywhere","Destroys substrates"]],
+  ["Competitive inhibitors bind the…","Active site",["Allosteric site","Cofactor","Promoter"]],
+  ["Optimal human enzyme temperature ≈","37°C",["0°C","60°C","100°C"]],
+  ["Michaelis constant Km represents…","Substrate concentration at half Vmax",["Maximum velocity","Total enzyme count","Bond energy"]],
+  ["Cofactors often are…","Metal ions or coenzymes",["Lipids only","Amino acids only","Water molecules"]],
+  ["Denaturation destroys an enzyme's…","Three-dimensional structure",["Primary sequence","Elemental makeup","Mass"]],
+  ["Feedback inhibition involves…","Product inhibiting its pathway enzyme",["Substrate activating itself","Heat speeding reactions","pH staying constant"]]]},
+ {id:"quantum",name:"Quantum Core: Max Stability",ico:"⚛️",hue:"#a29bfe",desc:"Stabilize a quantum lattice under pressure",shape:"atom",qs:[
+  ["Heisenberg uncertainty limits simultaneous knowledge of…","Position and momentum",["Charge and mass","Color and spin","Size and weight"]],
+  ["Electron configuration of oxygen (8 e⁻)","1s² 2s² 2p⁴",["1s² 2s² 2p⁶","1s² 2p⁶","[Ne] 3s¹"]],
+  ["Photon energy is proportional to its…","Frequency",["Speed","Volume","Charge"]],
+  ["Pauli exclusion forbids two electrons sharing…","The same four quantum numbers",["The same atom","Any orbital ever","Spin direction"]],
+  ["Entanglement means measuring one particle…","Instantly correlates its partner's state",["Destroys both particles","Slows light","Reverses time"]],
+  ["Atomic number equals the count of…","Protons",["Neutrons","Electrons+neutrons","Isotopes"]],
+  ["Radioactive half-life is when…","Half the sample has decayed",["All atoms decay","Rate halves forever","Mass doubles"]],
+  ["Covalent bonds involve…","Shared electron pairs",["Transferred electrons","Free protons","Magnetic alignment"]]]},
+ {id:"astro",name:"Orbital Forge: Astrophysics",ico:"🪐",hue:"#fab1a0",desc:"Forge planets in a newborn system",shape:"planet",qs:[
+  ["Force keeping planets in orbit","Gravity",["Magnetism","Friction","Pressure"]],
+  ["Kepler's 3rd law links orbital period to…","Semi-major axis cubed",["Planet mass","Star color","Moon count"]],
+  ["Main sequence stars fuse…","Hydrogen into helium",["Helium into carbon","Iron into gold","Nothing"]],
+  ["A light-year measures…","Distance",["Time","Brightness","Mass"]],
+  ["Redshift indicates an object is…","Moving away from us",["Approaching","Rotating","Cooling"]],
+  ["Our galaxy is called…","The Milky Way",["Andromeda","Centaurus","Orion"]],
+  ["Event horizon: escape velocity…","Exceeds light speed",["Becomes zero","Runs time faster","Ends space"]],
+  ["Stars make energy via…","Nuclear fusion",["Chemical combustion","Fission of iron","Friction"]]]},
+ {id:"neuro",name:"Synapse Nexus: Neuroscience",ico:"🧠",hue:"#81ecec",desc:"Wire a learning neural network",shape:"neuron",qs:[
+  ["Neuron resting membrane potential ≈","−70 mV",["+30 mV","0 mV","−95 mV"]],
+  ["Neurotransmitter most linked to reward","Dopamine",["GABA","Glycine","Histamine"]],
+  ["Myelination speeds signals via…","Saltatory conduction",["Chemical diffusion","Extra synapses","Wider axons only"]],
+  ["Hippocampus is essential for…","Forming new memories",["Balance","Vision processing","Digestion"]],
+  ["Action potentials follow…","All-or-none principle",["Graded decay only","Random firing","Inverted polarity"]],
+  ["Blood-brain barrier comes from…","Tight junctions of endothelial cells",["Skull bone","Meninges only","Neurons themselves"]],
+  ["Long-term potentiation strengthens…","Synaptic connections",["Myelin sheaths","Blood flow","Bone density"]],
+  ["Mirror neurons fire when…","Observing others' actions",["Sleeping","Eating only","Pain occurs"]]]},
+ {id:"ecosphere",name:"Gaia Engine: Ecology",ico:"🌍",hue:"#00b894",desc:"Balance an entire biosphere",shape:"globe",qs:[
+  ["Base of most food chains","Producers (plants/algae)",["Herbivores","Decomposers","Carnivores"]],
+  ["Nitrogen fixation converts N₂ into…","Ammonia/ammonium",["Oxygen","Methane","Carbon dioxide"]],
+  ["Energy between trophic levels ≈","10%",["50%","90%","100%"]],
+  ["Keystone species…","Disproportionately shape ecosystems",["Are always largest","Go extinct first","Photosynthesize"]],
+  ["Carbon cycle removes CO₂ mainly via…","Photosynthesis",["Respiration","Volcanism","Urbanization"]],
+  ["Biodiversity hotspots have…","Many endemic species under threat",["Coldest climates","Most rainfall only","Zero humans"]],
+  ["Succession after disturbance leads to…","Gradual ecosystem recovery",["Immediate climax community","Permanent barrenness","Random chaos"]],
+  ["Eutrophication results from excess…","Nutrients causing algal blooms",["Predators","UV radiation","Wind"]]]},
+ {id:"omni",name:"Omni-Scientia: The Gauntlet",ico:"🌌",hue:"#e17055",desc:"Mixed disciplines — the ultimate trial",shape:"star",mix:true,qs:[]}
+];
+const shuffle=a=>{for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]];}return a;};
+const esc=s=>String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const HSKEY="rpw2.arcade.highscores";
+let HS={};try{HS=JSON.parse(localStorage.getItem(HSKEY))||{};}catch(e){HS={};}
+const saveHS=()=>{try{localStorage.setItem(HSKEY,JSON.stringify(HS));}catch(e){}};
+let MUTED=false;
+
+/* ---------- view switching ---------- */
+const VIEWS=["viewWorlds","viewGame","viewVictory"];
+function show(id){VIEWS.forEach(v=>$("#"+v).classList.toggle("hidden",v!==id));}
+
+/* ---------- shape renderer (shared by minis + stage) ---------- */
+function drawShape(c,shape,r){
+ c.beginPath();
+ if(shape==="heart"){c.moveTo(0,r*.55);c.bezierCurveTo(-r*1.5,-r*.35,-r*.6,-r*1.4,0,-r*.45);c.bezierCurveTo(r*.6,-r*1.4,r*1.5,-r*.35,0,r*.55);}
+ else if(shape==="chip"){c.rect(-r*.72,-r*.72,r*1.44,r*1.44);c.fill();for(let i=-1;i<=1;i++){c.fillRect(i*r*.48-r*.07,-r*1.1,r*.14,r*.38);c.fillRect(i*r*.48-r*.07,r*.72,r*.14,r*.38);c.fillRect(-r*1.1,i*r*.48-r*.07,r*.38,r*.14);c.fillRect(r*.72,i*r*.48-r*.07,r*.38,r*.14);}return;}
+ else if(shape==="cell"){c.arc(0,0,r,0,7);c.fill();const ga=c.globalAlpha;c.globalAlpha=ga*.5;c.beginPath();c.arc(-r*.28,-r*.22,r*.34,0,7);c.fill();c.globalAlpha=ga;}
+ else if(shape==="hex"){for(let i=0;i<6;i++){const a=Math.PI/3*i-Math.PI/6;i?c.lineTo(Math.cos(a)*r,Math.sin(a)*r):c.moveTo(Math.cos(a)*r,Math.sin(a)*r);}c.closePath();}
+ else if(shape==="atom"){c.arc(0,0,r*.34,0,7);c.fill();c.strokeStyle=c.fillStyle;c.lineWidth=Math.max(1.5,r*.08);for(let i=0;i<3;i++){c.beginPath();c.ellipse(0,0,r,r*.4,i*Math.PI/3,0,7);c.stroke();}return;}
+ else if(shape==="planet"){c.arc(0,0,r*.78,0,7);c.fill();c.strokeStyle=c.fillStyle;c.lineWidth=r*.12;const ga=c.globalAlpha;c.globalAlpha=ga*.65;c.beginPath();c.ellipse(0,0,r*1.25,r*.36,-.32,0,7);c.stroke();c.globalAlpha=ga;return;}
+ else if(shape==="neuron"){c.arc(0,0,r*.26,0,7);c.fill();c.strokeStyle=c.fillStyle;c.lineWidth=Math.max(1.5,r*.07);for(let i=0;i<5;i++){const a=i*Math.PI*2/5-Math.PI/2;c.beginPath();c.moveTo(0,0);c.quadraticCurveTo(Math.cos(a+.4)*r*.7,Math.sin(a+.4)*r*.7,Math.cos(a)*r,Math.sin(a)*r);c.stroke();c.beginPath();c.arc(Math.cos(a)*r,Math.sin(a)*r,r*.11,0,7);c.fill();}return;}
+ else if(shape==="globe"){c.arc(0,0,r,0,7);c.fill();c.strokeStyle="rgba(4,36,15,.8)";c.lineWidth=Math.max(1.5,r*.06);c.beginPath();c.ellipse(0,0,r,r*.42,0,0,7);c.stroke();c.beginPath();c.ellipse(0,0,r*.42,r,0,0,7);c.stroke();return;}
+ else{for(let i=0;i<5;i++){const a=-Math.PI/2+i*Math.PI*2/5;i?c.lineTo(Math.cos(a)*r,Math.sin(a)*r):c.moveTo(Math.cos(a)*r,Math.sin(a)*r);}c.closePath();}
+ c.fill();
+}
+
+/* ---------- world select ---------- */
+function drawMini(cv,w){
+ c=cv.getContext("2d");c.clearRect(0,0,cv.width,cv.height);
+ for(let i=0;i<16;i++){c.globalAlpha=.05+((i*37)%40)/160;c.fillStyle="#fff";c.fillRect((i*97)%cv.width,(i*61)%cv.height,2,2);}
+ c.globalAlpha=.9;c.fillStyle=w.hue;c.shadowColor=w.hue;c.shadowBlur=24;
+ c.save();c.translate(cv.width-58,cv.height-50);drawShape(c,w.shape,36);c.restore();
+}
+function paintWorlds(filter){
+ const f=(filter||"").trim().toLowerCase(),grid=$("#worldGrid");
+ grid.innerHTML="";
+ WORLDS.filter(w=>!f||(w.name+" "+w.desc).toLowerCase().includes(f)).forEach(w=>{
+  const hs=HS[w.id]||{best:0,runs:0};
+  const card=document.createElement("div");card.className="world-card";card.setAttribute("role","button");card.tabIndex=0;
+  const cv=document.createElement("canvas");cv.width=420;cv.height=230;card.appendChild(cv);
+  const body=document.createElement("div");body.className="wc-body";
+  body.innerHTML=`<div style="font-size:28px;line-height:1">${w.ico}</div>
+   <h3 style="margin:6px 0 2px;font-size:15.5px">${esc(w.name)}</h3>
+   <p class="muted small" style="margin:0 0 9px">${esc(w.desc)}</p>
+   <span class="tiny">★ best <b>${hs.best}</b> · ${hs.runs} run${hs.runs===1?"":"s"} · ${w.mix?"mixed":w.qs.length+" topics"}</span>`;
+  card.appendChild(body);
+  const go=()=>startGame(w);
+  card.addEventListener("click",go);
+  card.addEventListener("keydown",e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();go();}});
+  grid.appendChild(card);
+  drawMini(cv,w);
+ });
+ const runs=Object.values(HS).reduce((a,x)=>a+(x.runs||0),0);
+ $("#hsTotal").textContent=WORLDS.length+" worlds · "+runs+" total run"+(runs===1?"":"s");
+}
+
+/* ---------- game core ---------- */
+let G=null,rafId=0,t0=performance.now();
+function buildDeck(w){
+ const pool=w.mix?[].concat(...WORLDS.filter(x=>x.id!=="omni").map(x=>x.qs)):w.qs.slice();
+ return shuffle(pool).slice(0,10);
+}
+function startGame(w){
+ G={w,deck:buildDeck(w),idx:0,score:0,streak:0,bestStreak:0,lives:3,lock:false};
+ $("#gameTitle").textContent=w.ico+" "+w.name;
+ $("#qFeedback").classList.add("hidden");
+ document.documentElement.style.setProperty("--app-hue1",w.hue);
+ sizeCanvas();updateHUD();show("viewGame");
+ cancelAnimationFrame(rafId);t0=performance.now();loop(performance.now());
+ nextQ();
+}
+function sizeCanvas(){
+ const cv=$("#gameCv"),wrap=$("#cvWrap");
+ cv.width=Math.max(320,Math.floor(wrap.clientWidth));cv.height=300;
+}
+window.addEventListener("resize",()=>{if(G&&!$("#viewGame").classList.contains("hidden"))sizeCanvas();});
+function updateHUD(){
+ const p=Math.round(G.idx/G.deck.length*100);
+ $("#synPct").textContent=p+"%";$("#synFill").style.width=p+"%";
+ $("#livesLbl").textContent=G.lives;$("#scoreLbl").textContent=G.score;
+ $("#phaseLbl").textContent=G.lock?"…":("Q"+Math.min(G.idx+1,G.deck.length)+" of "+G.deck.length);
+}
+function nextQ(){
+ if(G.lives<=0||G.idx>=G.deck.length){endGame(G.lives>0);return;}
+ const [q,right,wrongs]=G.deck[G.idx];
+ $("#qPhaseTitle").textContent="QUESTION "+(G.idx+1)+" / "+G.deck.length;
+ $("#qText").textContent=q;
+ $("#qFeedback").classList.add("hidden");
+ const box=$("#qOpts");box.innerHTML="";
+ shuffle([right,...shuffle(wrongs.slice())]).forEach(opt=>{
+  const b=document.createElement("button");b.className="g-opt";b.textContent=opt;
+  b.addEventListener("click",()=>resolve(b,opt===right,right));
+  box.appendChild(b);
+ });
+ updateHUD();
+}
+function resolve(btn,ok,right){
+ if(!G||G.lock)return;G.lock=true;
+ document.querySelectorAll("#qOpts .g-opt").forEach(b=>{
+  b.disabled=true;
+  if(b.textContent===right)b.classList.add("right");
+  else if(b===btn)b.classList.add("wrong");
+ });
+ const fb=$("#qFeedback");fb.classList.remove("hidden");
+ if(ok){
+  G.streak++;G.bestStreak=Math.max(G.bestStreak,G.streak);
+  G.score+=100+G.streak*20;G.idx++;
+  fb.innerHTML='<b style="color:#2ecc71">✔ Secured!</b>'+(G.streak>1?' <span class="tiny">chain ×'+G.streak+'</span>':"");
+  RPW2.sfx.ok();
+ }else{
+  G.lives--;G.streak=0;G.idx++;
+  fb.innerHTML='<b style="color:#ff4d6d">✘ Miss.</b> <span class="tiny">Answer: '+esc(right)+'</span>';
+  RPW2.sfx.err();
+ }
+ updateHUD();drawScene();
+ setTimeout(()=>{if(!G)return;G.lock=false;if(G.lives<=0||G.idx>=G.deck.length)endGame(G.lives>0);else nextQ();},1000);
+}
+
+/* ---------- stage scene ---------- */
+function drawFrame(ts){
+ const cv=$("#gameCv");if(!cv.width)return;
+ const c=cv.getContext("2d"),w=G?G.w:null,W=cv.width,H=cv.height;
+ c.clearRect(0,0,W,H);
+ for(let i=0;i<40;i++){
+  const x=(i*127)%W,y=(i*83+((ts/40)|0))%H;
+  c.globalAlpha=.06+((i*29)%30)/180;c.fillStyle="#9fb8ff";c.fillRect(x,y,2,2);
+ }
+ c.globalAlpha=1;if(!w||!G)return;
+ const p=G.deck.length?Math.min(1,G.idx/G.deck.length):0;
+ const pulse=1+Math.sin(ts/420)*.05*(0.3+p*.7);
+ c.save();c.translate(W/2,H/2-8);
+ const g=c.createRadialGradient(0,0,6,0,0,150*pulse);
+ g.addColorStop(0,w.hue+"55");g.addColorStop(1,"rgba(0,0,0,0)");
+ c.fillStyle=g;c.fillRect(-W/2,-H/2,W,H);
+ c.shadowColor=w.hue;c.shadowBlur=26*pulse;c.fillStyle=w.hue;
+ c.globalAlpha=.28+.72*p;c.scale(pulse,pulse);
+ drawShape(c,w.shape,(14+p*52));
+ c.restore();
+ c.save();c.globalAlpha=.85;c.fillStyle="#cfe0ff";c.font="600 12px system-ui";c.textAlign="center";
+ c.fillText(G.lives<=0?"STRUCTURAL FAILURE":("synthesis "+Math.round(p*100)+"% — "+w.desc),W/2,H-12);c.restore();
+}
+function loop(ts){drawFrame(ts);rafId=requestAnimationFrame(loop);}
+
+/* ---------- endings ---------- */
+function endGame(win){
+ cancelAnimationFrame(rafId);
+ G.lock=true;
+ const w=G.w,hs=HS[w.id]||(HS[w.id]={best:0,runs:0});
+ hs.runs++;if(G.score>hs.best)hs.best=G.score;saveHS();
+ const vic=$("#viewVictory");
+ vic.querySelector("h2").textContent=win?"STRUCTURE COMPLETE!":"STRUCTURE COLLAPSED";
+ vic.querySelector(".center > div").textContent=win?"🏗️✨":"💥";
+ $("#vicStats").innerHTML=esc(w.name)+" — score <b>"+G.score+"</b> · best streak ×"+G.bestStreak+
+  " · synthesis "+Math.round(G.idx/G.deck.length*100)+"%"+(win?'<br><span class="tiny">New personal best saved ★</span>':"");
+ show("viewVictory");
+ if(win)RPW2.sfx.win();
+ if(win&&RPW2.confetti)RPW2.confetti();
+}
+
+/* ---------- wiring ---------- */
+$("#btnExitGame").addEventListener("click",()=>{cancelAnimationFrame(rafId);G=null;paintWorlds($("#searchW").value);show("viewWorlds");});
+$("#btnToWorlds").addEventListener("click",()=>{G=null;paintWorlds($("#searchW").value);show("viewWorlds");});
+$("#btnAgain").addEventListener("click",()=>{const w=G.w;startGame(w);});
+$("#searchW").addEventListener("input",e=>paintWorlds(e.target.value));
+document.addEventListener("keydown",e=>{
+ if(e.key==="/"&&!$("#viewWorlds").classList.contains("hidden")&&document.activeElement!==$("#searchW")){e.preventDefault();$("#searchW").focus();}
+ if(G&&!$("#viewGame").classList.contains("hidden")&&["1","2","3","4"].includes(e.key)){
+  const b=document.querySelectorAll("#qOpts .g-opt:not(:disabled)")[+e.key-1];
+  if(b)b.click();
+ }
+});
+$("#btnResetHS").addEventListener("click",()=>{
+ RPW2.confirm({title:"Reset all high scores?",message:"Best scores and run counts for every world will be erased.",okLabel:"Reset"}).then(ok=>{
+  if(ok){HS={};saveHS();paintWorlds($("#searchW").value);RPW2.toast("Scores reset","info");}
+ });
+});
+const muteBtn=$("#btnMuteG");
+function paintMute(){muteBtn.textContent=RPW2.sfx.muted?"🔇":"🔊";}
+muteBtn.addEventListener("click",()=>{const m=RPW2.sfx.toggleMute();paintMute();RPW2.toast(m?"Sound off":"Sound on","info");});
+paintMute();
+
+/* ---------- boot ---------- */
+paintWorlds();
+show("viewWorlds");
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark" style="--app-hue1:#2c3e88;--app-hue2:#4a69bd">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MCAT Prep X · RPBeduWorld2</title>
+<meta name="description" content="MCAT companion: domain-tracked question bank, flashcards and timed practice sets.">
+<link rel="icon" href="../../shared/favicon.svg">
+<link rel="stylesheet" href="../../shared/rpw2.css">
+<style>
+  .dom-card{padding:18px;border-radius:14px;border:1px solid var(--glass-brd);background:var(--panel);cursor:pointer;transition:all .18s ease;}
+  .dom-card:hover{transform:translateY(-4px);box-shadow:var(--glow);border-color:var(--app-hue2);}
+  .flip-mini{perspective:1000px;height:210px;cursor:pointer;max-width:560px;margin:0 auto;}
+  .fm-inner{position:relative;width:100%;height:100%;transition:transform .5s cubic-bezier(.22,1,.36,1);transform-style:preserve-3d;}
+  .fm-inner.flipped{transform:rotateY(180deg);}
+  .fm-face{position:absolute;inset:0;backface-visibility:hidden;-webkit-backface-visibility:hidden;display:grid;place-items:center;text-align:center;padding:22px;border-radius:16px;background:var(--panel);border:1px solid var(--glass-brd);font-size:16.5px;font-weight:600;overflow:auto;}
+  .fm-back{transform:rotateY(180deg);background:linear-gradient(135deg,color-mix(in srgb,var(--app-hue1) 22%,transparent),var(--panel-solid));}
+  .q-opt{display:block;width:100%;text-align:left;padding:12px 15px;margin-bottom:8px;border-radius:11px;border:1px solid var(--glass-brd);background:var(--input-bg);color:var(--txt);cursor:pointer;font-size:14px;transition:all .15s ease;}
+  .q-opt:hover:not(:disabled){border-color:var(--app-hue2);}
+  .q-opt.right{border-color:var(--rpw-ok);background:rgba(46,204,113,.13);}
+  .q-opt.wrong{border-color:var(--rpw-err);background:rgba(255,77,109,.1);}
+  .timer-pill{font-family:var(--rpw-mono);font-weight:800;padding:6px 14px;border-radius:99px;background:var(--input-bg);border:1px solid var(--glass-brd);}
+  .timer-pill.warn{color:var(--rpw-err);border-color:var(--rpw-err);}
+</style>
+</head>
+<body>
+<header class="rpw-topbar">
+  <a class="rpw-home" href="../../index.html"><b>⬡ RPW²</b></a>
+  <div class="rpw-app-title"></div>
+  <div class="rpw-topbar-actions"><button class="rpw-theme-toggle" aria-label="Toggle theme"></button></div>
+</header>
+<main class="rpw-container">
+
+  <section id="viewHome">
+    <div class="rpw-hero rpw-rise"><h1>MCAT Prep <span class="grad">X</span></h1>
+      <p>Domain-tracked practice, high-yield flashcards and timed sets. Progress lives in your browser.</p></div>
+    <div id="kpiRow" class="rpw-kpis mb-3"></div>
+    <div class="row wrap spread mb-2"><b>Choose your arena</b>
+      <div class="rpw-btn-row no-print">
+        <label class="small row" style="gap:6px"><input type="checkbox" id="timedChk" checked> Timed (90s/question)</label>
+        <select class="rpw-select" id="lenSel" style="max-width:130px"><option value="6">6 Qs</option><option value="10" selected>10 Qs</option><option value="15">15 Qs</option></select>
+      </div></div>
+    <div class="rpw-grid rpw-rise" style="animation-delay:.06s" id="domGrid"></div>
+    <hr class="divider">
+    <div class="row wrap spread mb-2"><b>Accuracy by domain</b><button class="rpw-btn primary sm no-print" id="btnFlash">Flashcards →</button></div>
+    <canvas id="domChart" height="130" style="width:100%"></canvas>
+    <p class="tiny faint center mt-1">correct / attempted per section</p>
+  </section>
+
+  <section id="viewQuiz" class="hidden">
+    <div class="row wrap spread mb-2">
+      <button class="rpw-btn sm ghost" id="btnQuitQ">← End session</button>
+      <span class="muted small" id="qPos"></span>
+      <span class="timer-pill" id="timerPill">--</span>
+    </div>
+    <div class="rpw-progress mb-3"><div id="quizBar"></div></div>
+    <div class="rpw-panel" style="max-width:760px;margin:0 auto">
+      <h3 id="qText" style="font-size:17.5px;margin-bottom:14px"></h3>
+      <div id="qOpts"></div>
+      <div id="qExplain" class="hidden small mt-2" style="color:var(--txt-2);border-left:3px solid var(--app-hue2);padding-left:12px"></div>
+      <div class="mt-3 hidden" id="qNextWrap"><button class="rpw-btn primary" id="btnNextQ">Next →</button></div>
+    </div>
+  </section>
+
+  <section id="viewRes" class="hidden">
+    <div class="center rpw-panel" style="max-width:520px;margin:0 auto">
+      <div style="font-size:50px" id="resEmoji"></div>
+      <h2 class="grad-text" style="font-size:32px" id="resPct"></h2>
+      <p class="muted mt-1" id="resDetail"></p>
+      <button class="rpw-btn primary lg mt-3" id="btnResHome">Back to arenas</button>
+    </div>
+  </section>
+
+  <section id="viewCards" class="hidden">
+    <div class="row spread mb-2"><button class="rpw-btn sm ghost" id="btnQuitCards">← Home</button><span class="small muted" id="cardPos"></span></div>
+    <div class="flip-mini" id="flipMini"><div class="fm-inner" id="fmInner"><div class="fm-face" id="fmFront"></div><div class="fm-face fm-back" id="fmBack"></div></div></div>
+    <div class="row mt-3" style="justify-content:center;gap:9px">
+      <button class="rpw-btn" id="cPrev">← Prev</button>
+      <button class="rpw-btn" id="cFlip">Flip (Space)</button>
+      <button class="rpw-btn" id="cNext">Next →</button>
+    </div>
+  </section>
+</main>
+<footer class="rpw-footer">MCAT Prep X · part of <b>RPBeduWorld2</b> · study smart, score high 🩺</footer>
+<script src="../../shared/rpw2.js"></script>
+<script>
+(function(){
+"use strict";
+const $=s=>document.querySelector(s);
+RPW2.initTopbar("MCAT Prep X","book");
+
+const DOMS={
+ "Chem/Phys":{ico:"⚗️",qs:[
+  ["What does a negative ΔH indicate?","Exothermic reaction",["Endothermic reaction","Equilibrium shift","Spontaneous process"]],
+  ["pH of a solution with [H+] = 1×10⁻³","3",["7","−3","11"]],
+  ["Unit of molarity","mol/L",["g/L","mol/kg","L/mol"]],
+  ["First law of thermodynamics states…","Energy is conserved",["Entropy always increases","ΔG=ΔH−TΔS only at STP","PV=nRT"]],
+  ["Oxidation is defined as…","Loss of electrons",["Gain of electrons","Gain of protons","Loss of neutrons"]],
+  ["Which quantum number gives orbital shape?","l (azimuthal)",["n (principal)","mₗ (magnetic)","mₛ (spin)"]],
+  ["A buffer resists pH change because it contains…","Weak acid + conjugate base",["Strong acid + strong base","Water + salt","Two strong acids"]],
+  ["Speed of sound is fastest in…","Solids",["Gases","Liquids","Vacuum"]],
+  ["Le Châtelier: increasing pressure shifts equilibrium toward…","Fewer moles of gas",["More moles of gas","Reactants always","No change"]],
+  ["Bond type in NaCl","Ionic",["Nonpolar covalent","Metallic","Hydrogen"]],
+  ["Average kinetic energy of gas depends directly on…","Temperature",["Pressure only","Volume only","Molar mass"]],
+  ["Functional group −OH belongs to","Alcohols",["Aldehydes","Ketones","Ethers"]]],
+  cards:[["Ideal gas law","PV = nRT — pressure × volume = moles × R × temperature"],["Enthalpy vs Entropy","ΔH heat change; ΔS disorder change; ΔG = ΔH − TΔS decides spontaneity"],["Common ion effect","Suppressed ionization when an ion common to the solute is added"]]},
+ "Bio/Biochem":{ico:"🧬",qs:[
+  ["Powerhouse organelle producing ATP","Mitochondrion",["Ribosome","Golgi apparatus","Nucleus"]],
+  ["Enzyme that unwinds DNA during replication","Helicase",["Ligase","Primase","Topoisomerase II"]],
+  ["Codon AUG codes for…","Methionine (start)",["Stop signal","Valine","Proline"]],
+  ["Krebs cycle occurs in the…","Mitochondrial matrix",["Cytosol","Nucleus","Smooth ER"]],
+  ["Peptide bond forms between…","Amino group & carboxyl group",["Two carboxyl groups","Two amino groups","Phosphate & sugar"]],
+  ["Which cell-cycle phase replicates DNA?","S phase",["G1","G2","M"]],
+  ["Insulin is secreted by…","Pancreatic β-cells",["α-cells","Thyroid follicles","Adrenal medulla"]],
+  ["Osmosis moves water toward…","Higher solute concentration",["Lower solute concentration","Equal both ways","Positive charge"]],
+  ["Competitive inhibitor binds…","Active site",["Allosteric site","DNA","Ribosome A site"]],
+  ["Meiosis produces…","4 haploid cells",["2 diploid cells","4 diploid cells","2 haploid cells"]],
+  ["Bohr effect: low pH shifts Hb curve…","Right (more O₂ release)",["Left (more O₂ binding)","No change","Downward only"]],
+  ["Site of lipid synthesis","Smooth ER",["Rough ER","Peroxisome","Lysosome"]]],
+  cards:[["Fluid mosaic model","Membrane = phospholipid bilayer with drifting proteins; selective permeability"],["Endosymbiotic theory","Mitochondria & chloroplasts evolved from engulfed prokaryotes (own DNA, double membrane)"],["Epistasis","One gene masks or modifies expression of another"]]},
+ "Psych/Soc":{ico:"🧠",qs:[
+  ["Classical conditioning pairs…","Neutral stimulus with unconditioned stimulus",["Behavior with consequence","Two neutral stimuli","Genes with environment"]],
+  ["Operant conditioning relies on…","Reinforcement & punishment",["Reflex arcs","Observation only","Insight learning"]],
+  ["Fundamental attribution error is…","Overweighting disposition, underweighting situation",["Blaming situations for others","Conforming to majority","Memory distortion"]],
+  ["Broca's area controls…","Speech production",["Language comprehension","Vision","Balance"]],
+  ["Cognitive dissonance describes…","Discomfort from conflicting beliefs/actions",["Forgetting trauma","Social loafing","Group polarization"]],
+  ["Sensorimotor stage is Piaget's…","First stage (birth–2 yrs)",["Second stage","Third stage","Final stage"]],
+  ["Serotonin is primarily associated with…","Mood regulation",["Muscle memory only","Adrenaline fight-flight","Bone growth"]],
+  ["In-group bias means favoring…","One's own group",["Outsiders","Random strangers","Authority always"]],
+  ["Weber's law relates to…","Just-noticeable difference of stimuli",["Classical extinction","REM cycles","Neuroplasticity"]],
+  ["Social facilitation: presence of others typically…","Enhances simple/well-learned tasks",["Always impairs performance","Has zero effect","Only affects children"]],
+  ["Implicit procedural memory relies largely on…","Basal ganglia & cerebellum",["Amygdala only","Prefrontal cortex only","Spinal cord"]],
+  ["Asch's experiments demonstrated…","Conformity to group opinion",["Obedience to authority","Bystander apathy","Learned helplessness"]]],
+  cards:[["Piaget's 4 stages","Sensorimotor → Preoperational → Concrete operational → Formal operational"],["Big Five traits","Openness, Conscientiousness, Extraversion, Agreeableness, Neuroticism (OCEAN)"],["Attribution theory","Dispositional vs situational explanations for behavior"]]},
+ "CARS Skills":{ico:"📖",qs:[
+  ["Best CARS reading strategy?","Track structure & author stance actively",["Memorize every detail","Read fastest possible","Skip hard paragraphs"]],
+  ["'Tone of cautious approval' implies the author…","Supports with reservations",["Fully rejects","Is neutral always","Mocks the subject"]],
+  ["Main idea questions ask for…","Central argument of passage",["Smallest detail","Author's biography","Vocabulary definitions"]],
+  ["Inference must be…","Supported by text evidence",["Your personal opinion","From outside knowledge","The most extreme option"]],
+  ["Strengthen/weaken questions hinge on…","Logical link between evidence and claim",["Grammar choices","Word count","Order of passages"]],
+  ["When two answer choices both seem true…","Pick the one answering the actual question",["Choose longer wording","Pick first appearing","Flip a coin"]],
+  ["'However' signals the author is about to…","Contrast or qualify previous point",["Conclude entirely","Repeat verbatim","Give up the argument"]],
+  ["Scope errors in wrong answers usually…","Go too broad or too narrow vs passage",["Use exact passage words","Are always shorter","Quote line 3"]],
+  ["Best way to handle dense science CARS passage?","Slow on logic, skim examples you grasp",["Skip whole passage","Memorize numbers","Read backwards"]],
+  ["Author's purpose differs from main idea: purpose asks…","Why the author wrote it",["What happened first","Who is quoted","How long it is"]],
+  ["An analogy question requires you to…","Map relationships between cases",["Recall trivia","Count words","Judge length"]],
+  ["Reasonable CARS pace per passage+questions ≈","10–12 minutes",["3 minutes","20–25 minutes","45 minutes"]],],
+  cards:[["CARS timing budget","~10 min/passage set; never let one passage sink the section"],["WRONG-answer traps","Too extreme, out-of-scope, half-right, opposite, not-asked"]]}
+};
+
+let prog=RPW2.store.get("mcat.progress",{});
+function acc(d){const p=prog[d]||{ok:0,n:0};return p.n?Math.round(p.ok/p.n*100):null;}
+function shuffle(a){for(let i=a.length-1;i>0;i--){const j=(Math.random()*(i+1))|0;[a[i],a[j]]=[a[j],a[i]];}return a;}
+
+/* ---------- home ---------- */
+function paintHome(){
+  const totalN=Object.keys(DOMS).reduce((a,d)=>a+(prog[d]||{n:0}).n,0);
+  const totalOk=Object.keys(DOMS).reduce((a,d)=>a+(prog[d]||{ok:0}).ok,0);
+  $("#kpiRow").innerHTML=[
+    [Object.keys(DOMS).length,"domains"],[totalN,"questions tried"],
+    [totalN?Math.round(totalOk/totalN*100)+"%":"—","overall accuracy"],[allCards().length,"flashcards"]
+  ].map(k=>'<div class="rpw-kpi"><div class="num">'+k[0]+'</div><div class="lbl">'+k[1]+'</div></div>').join("");
+  $("#domGrid").innerHTML=Object.keys(DOMS).map((d,i)=>{
+    const a=acc(d);
+    return '<div class="dom-card" data-d="'+esc(d)+'" style="animation-delay:'+(i*.05)+'s">'+
+     '<div style="font-size:30px">'+DOMS[d].ico+'</div><b>'+esc(d)+'</b>'+
+     '<p class="tiny faint mt-1">'+DOMS[d].qs.length+' bank questions'+(a!=null?" · your "+a+"%":"")+'</p>'+
+     '<div class="rpw-progress mt-2">'+(a!=null?'<div style="width:'+a+'%"></div>':"")+'</div></div>';
+  }).join("");
+  drawChart();
+}
+function allCards(){return Object.keys(DOMS).flatMap(d=>(DOMS[d].cards||[]).map(c=>({d,f:c[0],b:c[1]})));}
+$("#domGrid").addEventListener("click",e=>{
+  const c=e.target.closest("[data-d]");
+  if(c)return startQuiz(c.dataset.d);
+});
+
+/* ---------- chart ---------- */
+function drawChart(){
+  const cv=$("#domChart"),ctx=cv.getContext("2d");
+  cv.width=cv.clientWidth*devicePixelRatio;cv.height=130*devicePixelRatio;ctx.scale(devicePixelRatio,devicePixelRatio);
+  const ds=Object.keys(DOMS),W=cv.clientWidth,H=120,pad=10,max=100;
+  ctx.clearRect(0,0,W,H);
+  ds.forEach((d,i)=>{
+    const slot=(W-pad*2)/ds.length,bw=Math.min(90,slot-18),x=pad+i*slot+(slot-bw)/2;
+    const a=acc(d)||0,h=(a/max)*(H-30);
+    const g=ctx.createLinearGradient(0,H-h,0,H);g.addColorStop(0,"#4a69bd");g.addColorStop(1,"#38e8ff");
+    ctx.fillStyle=g;
+    ctx.beginPath();ctx.moveTo(x,H);ctx.lineTo(x,H-h);ctx.arcTo(x+bw,H-h,x+bw,H,Math.min(bw/2,6));ctx.closePath();ctx.fill();
+    if(a){ctx.fillStyle="#fff";ctx.font="800 12px system-ui";ctx.textAlign="center";ctx.fillText(a+"%",x+bw/2,H-h-7);}
+    ctx.fillStyle=document.documentElement.dataset.theme==="dark"?"#98a2c0":"#55607e";
+    ctx.font="600 9.5px system-ui";ctx.textAlign="center";
+    ds[i].split("/").forEach((part,li)=>ctx.fillText(part,x+bw/2,H-14+li*9));
+  });
+}
+addEventListener("resize",()=>{if(!$("#viewHome").classList.contains("hidden"))drawChart();});
+
+/* ---------- quiz ---------- */
+let quiz=null,timerInt=null;
+function startQuiz(domain){
+  const n=+$("#lenSel").value;
+  const items=shuffle([...DOMS[domain].qs]).slice(0,n).map(q=>{
+    const opts=shuffle([q[1],...q[2]]);
+    return {q:q[0],opts,answer:opts.indexOf(q[1]),domain};
+  });
+  quiz={items,idx:0,score:0,domain};
+  show("quiz");paintQ();
+}
+function show(v){
+  ["Home","Quiz","Res","Cards"].forEach(n=>$("#view"+n).classList.toggle("hidden",n.toLowerCase()!==v));
+}
+function paintQ(){
+  const it=quiz.items[quiz.idx];
+  clearInterval(timerInt);
+  $("#qPos").textContent="Q "+(quiz.idx+1)+" / "+quiz.items.length+" · "+quiz.domain;
+  $("#quizBar").style.width=(quiz.idx/quiz.items.length*100)+"%";
+  $("#qText").textContent=it.q;
+  $("#qExplain").classList.add("hidden");
+  $("#qNextWrap").classList.add("hidden");
+  $("#qOpts").innerHTML=it.opts.map((o,i)=>'<button class="q-opt" data-i="'+i+'">'+esc(o)+"</button>").join("");
+  [...$("#qOpts").children].forEach(b=>b.onclick=()=>answer(+b.dataset.i));
+  // timer
+  const timed=$("#timedChk").checked,pill=$("#timerPill");
+  pill.classList.remove("hidden");
+  let t=90;pill.textContent="1:30";pill.classList.remove("warn");
+  if(timed){
+    timerInt=setInterval(()=>{
+      t--;
+      pill.textContent=Math.floor(t/60)+":"+String(t%60).padStart(2,"0");
+      if(t<=15)pill.classList.add("warn");
+      if(t<=0){clearInterval(timerInt);
+        [...$("#qOpts").children].forEach(b=>b.disabled=true);
+        reveal(-1);}
+    },1000);
+  } else pill.classList.add("hidden");
+}
+function answer(i){
+  clearInterval(timerInt);
+  [...$("#qOpts").children].forEach(b=>b.disabled=true);
+  reveal(i);
+}
+function reveal(pick){
+  const it=quiz.items[quiz.idx];
+  const ok=pick===it.answer;
+  [...$("#qOpts").children].forEach((b,i)=>{
+    if(i===it.answer)b.classList.add("right");
+    else if(i===pick)b.classList.add("wrong");
+  });
+  if(ok){quiz.score++;RPW2.sfx.ok();}else RPW2.sfx.err();
+  const p=prog[it.domain]=prog[it.domain]||{ok:0,n:0};
+  p.n++;if(ok)p.ok++;
+  RPW2.store.set("mcat.progress",prog);
+  const ex=$("#qExplain");ex.classList.remove("hidden");
+  ex.textContent=ok?"✔ Correct — "+it.opts[it.answer]:"✘ Correct answer: "+it.opts[it.answer];
+  $("#qNextWrap").classList.remove("hidden");
+}
+$("#btnNextQ").onclick=()=>{
+  quiz.idx++;
+  if(quiz.idx>=quiz.items.length){
+    const pct=Math.round(quiz.score/quiz.items.length*100);
+    clearInterval(timerInt);
+    $("#resEmoji").textContent=pct>=80?"🏆":pct>=50?"💪":"📚";
+    $("#resPct").textContent=pct+"%";
+    $("#resDetail").textContent=quiz.score+" / "+quiz.items.length+" correct in "+quiz.domain+(pct>=80?" — exam-ready form!":pct>=50?" — solid base, keep drilling":" — review the misses and run it back");
+    show("res");
+    if(pct>=80){RPW2.confetti();RPW2.sfx.win();}else RPW2.sfx.level();
+  } else paintQ();
+};
+$("#btnQuitQ").onclick=async()=>{
+  if(await RPW2.confirm({title:"End session?",message:"Current progress in this set will be kept.",yesLabel:"End"})){clearInterval(timerInt);show("home");paintHome();}
+};
+$("#btnResHome").onclick=()=>{show("home");paintHome();};
+
+/* ---------- flashcards ---------- */
+let ci=0;
+$("#btnFlash").onclick=()=>{ci=0;show("cards");paintCard();};
+$("#btnQuitCards").onclick=()=>{show("home");paintHome();};
+function paintCard(){
+  const cs=allCards(),c=cs[ci%cs.length];
+  $("#fmFront").textContent=c.f;
+  $("#fmBack").textContent=c.b;
+  $("#fmInner").classList.remove("flipped");
+  $("#cardPos").textContent=(ci%cs.length+1)+" / "+cs.length+" · "+c.d;
+}
+$("#flipMini").onclick=()=>{$("#fmInner").classList.toggle("flipped");RPW2.sfx.flip();};
+$("#cFlip").onclick=()=>{$("#fmInner").classList.toggle("flipped");};
+$("#cNext").onclick=()=>{ci++;paintCard();};
+$("#cPrev").onclick=()=>{ci--;paintCard();};
+document.addEventListener("keydown",e=>{
+  if($("#viewCards").classList.contains("hidden"))return;
+  if(e.code==="Space"){e.preventDefault();$("#fmInner").classList.toggle("flipped");}
+  if(e.key==="ArrowRight")$("#cNext").click();
+  if(e.key==="ArrowLeft")$("#cPrev").click();
+});
+
+show("home");paintHome();
+})();
+</script>
+</body>
+</html>

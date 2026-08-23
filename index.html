@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark" style="--app-hue1:#6c5ce7;--app-hue2:#00cec9">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RPBeduWorld² · Supreme Education Suite</title>
+<meta name="description" content="13 enhanced educational webapps — one zero-dependency, offline-capable hub.">
+<link rel="icon" href="shared/favicon.svg">
+<link rel="stylesheet" href="shared/rpw2.css">
+<style>
+ .app-card{position:relative;display:flex;flex-direction:column;gap:8px;padding:18px;border-radius:16px;border:1px solid var(--glass-brd);background:var(--panel);cursor:pointer;text-decoration:none;color:inherit;transition:transform .18s ease,box-shadow .18s ease,border-color .18s ease;overflow:hidden}
+ .app-card::before{content:"";position:absolute;inset:0;background:radial-gradient(120px 80px at 85% -10%,var(--hue),transparent 70%);opacity:.16;pointer-events:none}
+ .app-card:hover{transform:translateY(-4px);border-color:var(--hue);box-shadow:0 14px 34px rgba(0,0,0,.35),0 0 24px color-mix(in srgb,var(--hue) 30%,transparent)}
+ .app-card h3{margin:0;font-size:15.5px;display:flex;align-items:center;gap:8px}
+ .app-card p{margin:0;font-size:12.8px;color:var(--muted);line-height:1.45}
+ .app-card .ico{font-size:26px;line-height:1}
+ .tagline{display:flex;flex-wrap:wrap;gap:5px;margin-top:auto;padding-top:8px}
+ .tag{font-size:10.5px;padding:2px 8px;border-radius:99px;border:1px solid var(--glass-brd);color:var(--muted)}
+</style>
+</head>
+<body>
+<header class="rpw-topbar">
+  <a class="rpw-home" href="./index.html"><b>⬡ RPW²</b></a>
+  <div class="rpw-app-title"></div>
+  <div class="rpw-topbar-actions"><button class="rpw-theme-toggle" aria-label="Toggle theme"></button></div>
+</header>
+<main class="rpw-container">
+  <section class="rpw-hero rpw-rise">
+    <h1>RPBedu<span class="grad">World²</span></h1>
+    <p>The supreme education suite — <b>13 rebuilt &amp; enhanced webapps</b>, one shared design system.
+    Zero dependencies · no accounts · no API keys required · works offline.</p>
+    <div class="row wrap mt-2" style="gap:8px">
+      <span class="rpw-chip">100% client-side</span><span class="rpw-chip">Dark-first glass UI</span>
+      <span class="rpw-chip">360 px responsive</span><span class="rpw-chip">Your data stays local</span>
+    </div>
+  </section>
+  <div class="row spread mb-3 no-print">
+    <input class="rpw-input" id="searchA" placeholder="Search apps…  ( / )" style="max-width:300px">
+    <span class="muted small" id="appCount"></span>
+  </div>
+  <div class="rpw-grid" id="appGrid"></div>
+</main>
+<footer class="rpw-footer">RPBeduWorld² · built as a static monorepo · <span id="yr"></span></footer>
+<script src="shared/rpw2.js"></script>
+<script>
+(function(){
+"use strict";
+const APPS=[
+ {id:"flashai-supreme",ico:"🃏",hue:"#6c5ce7",name:"FlashAI Supreme",desc:"SM-2 spaced-repetition flashcards with quiz mode, CSV/JSON import-export and progress analytics.",tags:["study","srs","offline"]},
+ {id:"luminavault-x",ico:"🗄️",hue:"#00cec9",name:"LuminaVault X",desc:"Personal knowledge vault: mini-markdown notes, tags, instant search, pinning and autosave.",tags:["notes","wiki"]},
+ {id:"studyquest",ico:"⚔️",hue:"#fdcb6e",name:"StudyQuest",desc:"Gamified study RPG — XP, levels, streaks, daily goals, achievements and weekly XP charts.",tags:["gamify","quiz"]},
+ {id:"learnmaster-x",ico:"🎓",hue:"#0984e3",name:"LearnMaster X",desc:"Full mini-LMS: courses → lessons → quizzes, gradebook, badges and universal format import.",tags:["lms","courses"]},
+ {id:"scorm-forge-pro",ico:"📦",hue:"#e17055",name:"SCORM Forge Pro",desc:"Drag-drop any files into a valid SCORM 1.2 / 2004 package with manifest + API wrapper.",tags:["scorm","authoring"]},
+ {id:"scorm-vision-x",ico:"🔍",hue:"#a29bfe",name:"SCORM Vision X",desc:"Inspect SCORM zips: manifest parsing, validation report and sandboxed live preview.",tags:["scorm","qa"]},
+ {id:"schemabridge-x",ico:"🔁",hue:"#55efc4",name:"SchemaBridge X",desc:"Convert courses between Universal, LGAI and LMP schemas with validation and structure maps.",tags:["interop","converter"]},
+ {id:"course-theme-studio",ico:"🎨",hue:"#ff7675",name:"Course Theme Studio",desc:"Restyle existing course HTML with premium themes, TOC, progress bar — export standalone.",tags:["theming","export"]},
+ {id:"lessonforge-ai",ico:"✨",hue:"#fab1a0",name:"LessonForge AI",desc:"Generate complete lesson plans offline, or unlock Gemini generation with your own key.",tags:["lessons","byok"]},
+ {id:"wikimedia-scout",ico:"🖼️",hue:"#74b9ff",name:"Wikimedia Scout",desc:"Search Commons images by license, build collections, export MD/HTML/JSON reports.",tags:["media","reports"]},
+ {id:"tutorial-studio",ico:"🧑‍🏫",hue:"#00b894",name:"Tutorial Studio",desc:"Author slide tutorials with checkpoint quizzes, matching games, undo/redo and themes.",tags:["tutorials","authoring"]},
+ {id:"mcat-prep-x",ico:"🧬",hue:"#ffeaa7",name:"MCAT Prep X",desc:"Timed MCAT practice across Chem/Phys, Bio/Biochem, Psych/Soc and CARS with analytics.",tags:["exam","practice"]},
+ {id:"playables-arcade",ico:"🕹️",hue:"#ff4d6d",name:"Playables Arcade",desc:"Nine science worlds — answer questions to construct glowing structures before lives run out.",tags:["arcade","science"]}
+];
+const $=s=>document.querySelector(s);
+function paint(f){
+ const q=(f||"").toLowerCase(),g=$("#appGrid");g.innerHTML="";
+ let n=0;
+ APPS.filter(a=>!q||(a.name+" "+a.desc+" "+a.tags.join(" ")).toLowerCase().includes(q)).forEach(a=>{
+  n++;
+  const c=document.createElement("a");
+  c.className="app-card";c.href="apps/"+a.id+"/index.html";c.style.setProperty("--hue",a.hue);
+  c.innerHTML=`<span class="ico">${a.ico}</span><h3>${a.name}</h3><p>${a.desc}</p>
+   <span class="tagline">${a.tags.map(t=>`<span class="tag">#${t}</span>`).join("")}</span>`;
+  g.appendChild(c);
+ });
+ $("#appCount").textContent=n+" of "+APPS.length+" apps";
+}
+$("#searchA").addEventListener("input",e=>paint(e.target.value));
+document.addEventListener("keydown",e=>{
+ if(e.key==="/"&&document.activeElement!==$("#searchA")){e.preventDefault();$("#searchA").focus();}
+});
+$("#yr").textContent=new Date().getFullYear();
+RPW2.initTopbar("Suite Hub","hexagon");
+paint();
+})();
+</script>
+</body>
+</html>

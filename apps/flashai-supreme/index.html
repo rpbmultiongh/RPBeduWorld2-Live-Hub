@@ -1,0 +1,483 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark" style="--app-hue1:#8e44ad;--app-hue2:#3498db">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FlashAI Supreme · RPBeduWorld2</title>
+<meta name="description" content="Spaced-repetition flashcard studio with SM-2 scheduling, quiz mode, stats and import/export.">
+<link rel="icon" href="../../shared/favicon.svg">
+<link rel="stylesheet" href="../../shared/rpw2.css">
+<style>
+  .deck-grid { display:grid; gap:14px; grid-template-columns:repeat(auto-fill,minmax(240px,1fr)); }
+  .deck-card h3 { font-size:16px; margin-bottom:4px; }
+  .deck-meta { display:flex; gap:6px; flex-wrap:wrap; margin:10px 0; }
+  .study-stage { max-width:640px; margin:0 auto; text-align:center; }
+  .flip-scene { perspective:1400px; height:300px; margin:18px 0; cursor:pointer; }
+  .flip-inner { position:relative; width:100%; height:100%; transition:transform .55s cubic-bezier(.22,1,.36,1); transform-style:preserve-3d; }
+  .flip-inner.flipped { transform:rotateY(180deg); }
+  .flip-face { position:absolute; inset:0; backface-visibility:hidden; -webkit-backface-visibility:hidden;
+    display:grid; place-items:center; padding:26px; border-radius:var(--rpw-radius-lg);
+    background:var(--panel); border:1px solid var(--glass-brd); box-shadow:var(--shadow); font-size:clamp(17px,2.5vw,22px); font-weight:600; overflow:auto; }
+  .flip-back { transform:rotateY(180deg); background:linear-gradient(135deg, color-mix(in srgb,var(--app-hue1) 20%, var(--panel-solid)), var(--panel-solid)); }
+  .grade-row { display:grid; grid-template-columns:repeat(4,1fr); gap:10px; }
+  @media (max-width:480px){ .grade-row{grid-template-columns:repeat(2,1fr);} .flip-scene{height:250px;} }
+  .tag-chip { display:inline-flex; align-items:center; gap:5px; padding:3px 10px; font-size:11.5px; border-radius:99px;
+    background:color-mix(in srgb,var(--app-hue2) 14%, transparent); border:1px solid color-mix(in srgb,var(--app-hue2) 30%, transparent); color:var(--txt-2); }
+  textarea.bulk { min-height:200px; font-family:var(--rpw-mono); font-size:13px; }
+  canvas.chart { width:100%; height:120px; display:block; }
+  .quiz-opt { display:block; width:100%; text-align:left; padding:13px 16px; margin-bottom:9px; border-radius:12px;
+    border:1px solid var(--glass-brd); background:var(--input-bg); color:var(--txt); font-size:14.5px; cursor:pointer; transition:all .15s ease; }
+  .quiz-opt:hover:not(:disabled){ border-color:var(--app-hue2); transform:translateX(4px); }
+  .quiz-opt.right{ border-color:var(--rpw-ok); background:rgba(46,204,113,.12); }
+  .quiz-opt.wrong{ border-color:var(--rpw-err); background:rgba(255,77,109,.10); }
+</style>
+</head>
+<body>
+<header class="rpw-topbar">
+  <a class="rpw-home" href="../../index.html"><b>⬡ RPW²</b></a>
+  <div class="rpw-app-title"></div>
+  <div class="rpw-topbar-actions">
+    <button class="rpw-btn sm" id="btnImport">Import JSON</button>
+    <button class="rpw-btn sm primary" id="btnNewDeck">New Deck</button>
+    <button class="rpw-theme-toggle" aria-label="Toggle theme"></button>
+  </div>
+</header>
+<main class="rpw-container">
+
+  <!-- ============ DECKS VIEW ============ -->
+  <section id="viewDecks">
+    <div class="rpw-hero rpw-rise">
+      <h1>Flash<span class="grad">AI Supreme</span></h1>
+      <p>Master anything with spaced repetition. SM-2 scheduling, quiz mode, deep stats.</p>
+    </div>
+    <div class="row wrap mb-3 no-print">
+      <div class="rpw-search-wrap"><span data-icon></span><input class="rpw-input" data-rpw-search id="searchDecks" placeholder="Search decks…  ( / )"></div>
+      <button class="rpw-btn" id="btnBulk">Bulk Import</button>
+      <button class="rpw-btn" id="btnExportAll">Export All</button>
+      <select class="rpw-select" id="selStudyDeck" style="max-width:220px"></select>
+      <button class="rpw-btn primary" id="btnQuickStudy">Quick Study</button>
+    </div>
+    <div id="statsRow" class="rpw-kpis mb-3"></div>
+    <div class="rpw-panel mb-3">
+      <div class="rpw-section-title">Review activity — last 7 days</div>
+      <canvas class="chart" id="chartWeek" height="120"></canvas>
+    </div>
+    <div id="deckGrid" class="deck-grid"></div>
+  </section>
+
+  <!-- ============ STUDY VIEW ============ -->
+  <section id="viewStudy" class="hidden">
+    <div class="study-stage rpw-rise">
+      <div class="row spread mb-2">
+        <button class="rpw-btn sm ghost" id="btnExitStudy">← Exit</button>
+        <div class="muted small" id="studyProgressLbl"></div>
+        <button class="rpw-btn sm ghost" id="btnEditCurrent">Edit card</button>
+      </div>
+      <div class="rpw-progress mb-2"><div id="studyBar" style="width:0%"></div></div>
+      <div class="flip-scene" id="flipScene" title="Click to flip (Space)">
+        <div class="flip-inner" id="flipInner">
+          <div class="flip-face" id="faceFront"></div>
+          <div class="flip-face flip-back" id="faceBack"></div>
+        </div>
+      </div>
+      <div class="grade-row" id="gradeRow"></div>
+      <p class="faint tiny mt-2">Again resets · Hard ×1.2 · Good ×ease · Easy ×ease×1.3 &nbsp;(SM-2)</p>
+    </div>
+  </section>
+
+  <!-- ============ QUIZ VIEW ============ -->
+  <section id="viewQuiz" class="hidden">
+    <div class="study-stage rpw-rise">
+      <div class="row spread mb-2"><button class="rpw-btn sm ghost" id="btnExitQuiz">← Exit</button><div class="muted small" id="quizScoreLbl"></div></div>
+      <div class="rpw-panel" style="text-align:left">
+        <div class="bold mb-2" id="quizQNum" style="font-size:13px;color:var(--txt-2)"></div>
+        <h3 id="quizQuestion" style="margin-bottom:16px;font-size:19px"></h3>
+        <div id="quizOptions"></div>
+        <div id="quizNextWrap" class="mt-2 hidden"><button class="rpw-btn primary" id="btnQuizNext">Next →</button></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ RESULT VIEW ============ -->
+  <section id="viewResult" class="hidden">
+    <div class="study-stage rpw-rise">
+      <div class="rpw-panel center">
+        <div style="font-size:52px;margin-bottom:6px" id="resEmoji">🏆</div>
+        <h2 class="grad-text" id="resTitle" style="font-size:30px;font-weight:900"></h2>
+        <p class="muted mt-1" id="resSub"></p>
+        <div class="rpw-kpis mt-3" id="resKpis"></div>
+        <div class="rpw-btn-row mt-3" style="justify-content:center">
+          <button class="rpw-btn primary" id="btnResDone">Back to Decks</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+</main>
+<footer class="rpw-footer">FlashAI Supreme · part of <b>RPBeduWorld2</b> suite · your data stays in your browser</footer>
+<script src="../../shared/rpw2.js"></script>
+<script>
+(function(){
+"use strict";
+const K = { decks:"flashai.decks", meta:"flashai.meta", reviews:"flashai.reviews", seeded:"flashai.seeded" };
+const $ = s => document.querySelector(s);
+const esc = RPW2.escapeHtml, uid = RPW2.uid;
+
+/* ---------- state ---------- */
+let decks = RPW2.store.get(K.decks, []);
+let reviews = RPW2.store.get(K.reviews, []); // {date:'YYYY-MM-DD', correct:bool}
+let view = "decks";
+let study = null, quiz = null, activeDeckId = null;
+
+/* ---------- seed sample deck once ---------- */
+if (!RPW2.store.get(K.seeded, false)) {
+  decks.push(mkDeck("Biology Basics", [
+    ["Nucleus","Control center of the eukaryotic cell; contains DNA.","cell"],
+    ["Mitochondrion","Powerhouse of the cell; site of ATP production via cellular respiration.","energy"],
+    ["Ribosome","Molecular machine that synthesizes proteins from mRNA.","protein"],
+    ["Endoplasmic reticulum","Membrane network: rough (with ribosomes, protein synthesis) and smooth (lipids, detox).","transport"],
+    ["Golgi apparatus","Modifies, sorts and packages proteins for secretion or delivery.","transport"],
+    ["Lysosome","Organelle with digestive enzymes that breaks down waste and worn-out parts.","recycle"],
+    ["Cell membrane","Selective phospholipid bilayer controlling what enters/leaves the cell.","structure"],
+    ["Chloroplast","Plant organelle where photosynthesis converts light into chemical energy.","plant"]
+  ]));
+  RPW2.store.set(K.decks, decks); RPW2.store.set(K.seeded, true);
+}
+
+function mkDeck(name, cards){
+  return { id:uid(), name, created:RPW2.now(),
+    cards:(cards||[]).map(c=>mkCard(c[0],c[1],c[2])) };
+}
+function mkCard(front,back,tags){
+  return { id:uid(), front, back, tags:tags?[tags]:[],
+    srs:{ ease:2.5, interval:0, due:RPW2.now(), reps:0 }, stats:{ seen:0, right:0 } };
+}
+function save(){ RPW2.store.set(K.decks, decks); }
+function deckById(id){ return decks.find(d=>d.id===id); }
+function dueCards(d){ const n=Date.now(); return d.cards.filter(c=>!c.srs.due || new Date(c.srs.due).getTime()<=n+6e4); }
+
+/* ---------- topbar / icons ---------- */
+document.querySelector('.rpw-search-wrap [data-icon]').outerHTML = RPW2.icon("search",16);
+RPW2.initTopbar("FlashAI Supreme","brain");
+
+/* ---------- views ---------- */
+function show(v){
+  view=v;
+  ["Decks","Study","Quiz","Result"].forEach(n=>$("#view"+n).classList.toggle("hidden", n.toLowerCase()!==v));
+  if(v==="decks"){ renderStats(); renderDecks(); renderWeekChart(); fillDeckSelect(); }
+}
+
+/* ---------- deck grid ---------- */
+function renderDecks(){
+  const q = ($("#searchDecks").value||"").toLowerCase();
+  const grid=$("#deckGrid"); grid.innerHTML="";
+  const list = decks.filter(d=>!q || d.name.toLowerCase().includes(q));
+  if(!list.length){
+    grid.innerHTML='<div class="rpw-empty" style="grid-column:1/-1"><div class="big">🧠</div><h3>No decks'+(q?' match "'+esc(q)+'"':' yet')+'</h3><p>Create a deck or bulk-import cards to start mastering material.</p><button class="rpw-btn primary" onclick="document.getElementById(\'btnNewDeck\').click()">Create your first deck</button></div>';
+    return;
+  }
+  list.forEach((d,i)=>{
+    const due=dueCards(d).length;
+    const el=document.createElement("div");
+    el.className="rpw-card clickable rpw-rise"; el.style.animationDelay=(i*.05)+"s";
+    el.innerHTML='<div class="row spread"><h3 class="truncate">'+esc(d.name)+'</h3>'+
+      '<button class="rpw-btn icon-only" data-del="'+d.id+'" aria-label="Delete deck">'+RPW2.icon("trash",15)+'</button></div>'+
+      '<div class="deck-meta"><span class="rpw-badge">'+d.cards.length+' cards</span>'+(due?'<span class="rpw-badge warn">'+due+' due</span>':'<span class="rpw-badge ok">all clear</span>')+'</div>'+
+      '<div class="row wrap mt-1"><button class="rpw-btn sm primary" data-study="'+d.id+'">'+RPW2.icon("play",13)+'Study</button>'+
+      '<button class="rpw-btn sm" data-quiz="'+d.id+'">'+RPW2.icon("zap",13)+'Quiz</button>'+
+      '<button class="rpw-btn sm" data-edit="'+d.id+'">'+RPW2.icon("edit",13)+'Cards</button></div>';
+    el.addEventListener("click",e=>{
+      const t=e.target.closest("[data-del],[data-study],[data-quiz],[data-edit]");
+      if(!t){ startEditCards(d.id); return; }
+      if(t.dataset.del!==undefined && t.dataset.del) delDeck(t.dataset.del);
+      else if(t.dataset.study) startStudy(t.dataset.study);
+      else if(t.dataset.quiz) startQuiz(t.dataset.quiz);
+      else if(t.dataset.edit) startEditCards(t.dataset.edit);
+    });
+    grid.appendChild(el);
+  });
+}
+
+async function delDeck(id){
+  const d=deckById(id); if(!d)return;
+  if(await RPW2.confirm({title:"Delete deck?",message:'"'+d.name+'" and its '+d.cards.length+' cards will be permanently removed. Export first if needed.',danger:true,yesLabel:"Delete"})){
+    decks=decks.filter(x=>x.id!==id); save(); toast("Deck deleted","ok"); renderDecks();
+  }
+}
+
+/* ---------- KPIs + chart ---------- */
+function allCards(){ return decks.flatMap(d=>d.cards); }
+function renderStats(){
+  const cs=allCards();
+  const due=decks.reduce((a,d)=>a+dueCards(d).length,0);
+  const mastered=cs.filter(c=>c.srs.interval>=21).length;
+  const rv=reviews.length, right=reviews.filter(r=>r.correct).length;
+  $("#statsRow").innerHTML=[
+    [cs.length,"total cards"],[due,"due now"],[mastered,"mastered"],
+    [rv?Math.round(right/rv*100)+"%":"—","accuracy"],[decks.length,"decks"]
+  ].map(k=>'<div class="rpw-kpi"><div class="num">'+k[0]+'</div><div class="lbl">'+k[1]+'</div></div>').join("");
+}
+function renderWeekChart(){
+  const cv=$("#chartWeek"), ctx=cv.getContext("2d");
+  cv.width=cv.clientWidth*devicePixelRatio; cv.height=120*devicePixelRatio;
+  ctx.scale(devicePixelRatio,devicePixelRatio);
+  const days=[...Array(7)].map((_,i)=>{const d=new Date();d.setDate(d.getDate()-6+i);return d.toISOString().slice(0,10);});
+  const counts=days.map(day=>reviews.filter(r=>r.date===day).length);
+  const max=Math.max(...counts,4), W=cv.clientWidth,H=110,pad=8;
+  ctx.clearRect(0,0,W,H);
+  days.forEach((day,i)=>{
+    const bw=(W-pad*2)/7-10, x=pad+i*((W-pad*2)/7), h=(counts[i]/max)*(H-28);
+    const g=ctx.createLinearGradient(0,H-h,0,H); g.addColorStop(0,"#8e44ad"); g.addColorStop(1,"#3498db");
+    ctx.fillStyle=g; roundRect(ctx,x+5,H-h,bw,Math.max(h,3),5); ctx.fill();
+    ctx.fillStyle=document.documentElement.dataset.theme==="dark"?"#98a2c0":"#55607e";
+    ctx.font="600 9.5px system-ui"; ctx.textAlign="center";
+    ctx.fillText(new Date(day).toLocaleDateString(undefined,{weekday:"short"}).slice(0,3), x+5+bw/2, H-4);
+    if(counts[i]) ctx.fillText(counts[i], x+5+bw/2, H-h-5);
+  });
+}
+function roundRect(c,x,y,w,h,r){ c.beginPath(); c.moveTo(x+r,y); c.arcTo(x+w,y,x+w,y+h,r); c.arcTo(x+w,y+h,x,y+h,r); c.arcTo(x,y+h,x,y,r); c.arcTo(x,y,x+w,y,r); c.closePath(); }
+
+/* ---------- deck select ---------- */
+function fillDeckSelect(){
+  const sel=$("#selStudyDeck");
+  sel.innerHTML=decks.map(d=>'<option value="'+d.id+'">'+esc(d.name)+'</option>').join("")||"<option value=''>no decks</option>";
+}
+
+/* ---------- STUDY (SM-2) ---------- */
+function startStudy(id){
+  const d=deckById(id); if(!d)return;
+  let queue=dueCards(d);
+  if(!queue.length){
+    // fallback: weakest cards
+    queue=[...d.cards].sort((a,b)=>a.srs.reps-b.srs.reps).slice(0,10);
+    if(!queue.length){ toast("Deck has no cards — add some first","err"); return; }
+    toast("Nothing due — reviewing "+queue.length+" weakest cards","info");
+  } else toast(queue.length+" card"+(queue.length>1?"s":"")+" due","info");
+  study={ deckId:id, queue, idx:0, flipped:false };
+  show("study"); paintCard();
+}
+function paintCard(){
+  const c=study.queue[study.idx];
+  $("#faceFront").innerHTML=esc(c.front);
+  $("#faceBack").innerHTML=esc(c.back)+(c.tags&&c.tags.length?'<div class="row wrap mt-2" style="justify-content:center">'+c.tags.map(t=>'<span class="tag-chip">'+esc(t)+"</span>").join("")+"</div>":"");
+  $("#flipInner").classList.remove("flipped");
+  $("#gradeRow").style.visibility="hidden";
+  $("#studyBar").style.width=((study.idx)/study.queue.length*100)+"%";
+  $("#studyProgressLbl").textContent="Card "+(study.idx+1)+" / "+study.queue.length;
+  const grades=[["Again","danger"],["Hard",""],["Good","primary"],["Easy","ok"]];
+  $("#gradeRow").innerHTML=grades.map((g,i)=>'<button class="rpw-btn '+g[1]+'" data-g="'+i+'">'+g[0]+'</button>').join("");
+}
+function flip(){ if(view!=="study")return; study.flipped=!study.flipped;
+  $("#flipInner").classList.toggle("flipped",study.flipped);
+  $("#gradeRow").style.visibility=study.flipped?"visible":"hidden"; RPW2.sfx.flip(); }
+$("#flipScene").addEventListener("click",flip);
+
+function grade(gi){ // 0 Again,1 Hard,2 Good,3 Easy
+  const d=deckById(study.deckId), c=study.queue[study.idx];
+  let {ease,interval,reps}=c.srs;
+  if(gi===0){ reps=0; interval=0; ease=Math.max(1.3,ease-.2); }
+  else{
+    reps++; const q=[3,4,5][gi-1];
+    ease=Math.max(1.3,ease+(0.1-(5-q)*(0.08+(5-q)*0.02)));
+    interval = reps===1? (gi===1?1:gi===2?2:4)
+             : reps===2? Math.round(interval*(gi===1?1.2:gi===3?2.5:1.6))
+             : Math.round(interval*ease*(gi===1?.85:gi===3?1.3:1));
+  }
+  c.srs={ease,interval,reps,due:new Date(Date.now()+interval*864e5).toISOString()};
+  c.stats.seen++;
+  const ok=gi>=2; if(ok)c.stats.right++;
+  reviews.push({date:new Date().toISOString().slice(0,10),correct:ok});
+  if(reviews.length>500)reviews=reviews.slice(-400);
+  save(); RPW2.store.set(K.reviews,reviews);
+  gi===0?RPW2.sfx.err():RPW2.sfx.ok();
+  study.idx++;
+  if(study.idx>=study.queue.length) finishSession({mode:"study",total:study.queue.length});
+  else paintCard();
+}
+$("#gradeRow").addEventListener("click",e=>{ const b=e.target.closest("[data-g]"); if(b)grade(+b.dataset.g); });
+
+function finishSession(res){
+  const pct=res.correct!=null?Math.round(res.correct/res.total*100):null;
+  $("#resEmoji")&&( $("#resEmoji").textContent = res.mode==="quiz" ? (pct>=80?"🏆":pct>=50?"💪":"📚") : "✅" );
+  $("#resTitle").textContent = res.mode==="quiz"? ("Score: "+pct+"%") : "Session complete!";
+  $("#resSub").textContent = res.mode==="quiz"
+    ? (pct>=80?"Outstanding mastery!":pct>=50?"Solid — review the misses and go again.":"Keep going, every rep counts.")
+    : "All "+res.total+" reviews scheduled with SM-2.";
+  $("#resKpis").innerHTML=[
+    res.correct!=null?[res.correct,"correct"]:["✔","reviewed"],
+    res.total,(res.total-(res.correct||0)),"to revisit"
+  ].map((k,i)=>'<div class="rpw-kpi"><div class="num">'+k[0]+'</div><div class="lbl">'+(Array.isArray(k)?k[1]:(i===2?"revisit":"cards"))+'</div></div>').join("");
+  if(pct!=null&&pct>=80){RPW2.confetti();RPW2.sfx.win();}else RPW2.sfx.level();
+  show("result");
+}
+
+/* ---------- EDIT CARDS MODAL ---------- */
+function startEditCards(id){
+  activeDeckId=id; const d=deckById(id); if(!d)return;
+  const m=RPW2.modal("Cards · "+esc(d.name),
+   '<div class="row mb-2"><input class="rpw-input grow" id="ncFront" placeholder="Front (question)">'+
+   '<input class="rpw-input grow" id="ncBack" placeholder="Back (answer)">'+
+   '<button class="rpw-btn primary" id="ncAdd">Add</button></div>'+
+   '<div id="cardList" style="max-height:46vh;overflow:auto"></div>'+
+   '<hr class="divider"><div class="row spread"><button class="rpw-btn sm" id="dcExport">Export JSON</button>'+
+   '<button class="rpw-btn sm" id="dcCsv">CSV</button><button class="rpw-btn sm danger" id="dcDel">Delete deck</button></div>');
+  const paint=()=>{
+    m.el.querySelector("#cardList").innerHTML=d.cards.length?('<table class="rpw-table"><tbody>'+d.cards.map(c=>
+      '<tr><td class="grow"><b>'+esc(c.front)+'</b><br><span class="small muted">'+esc(c.back)+'</span></td>'+
+      '<td style="white-space:nowrap"><button class="rpw-btn icon-only" data-ce="'+c.id+'">'+RPW2.icon("edit",14)+'</button> '+
+      '<button class="rpw-btn icon-only" data-cx="'+c.id+'" aria-label="Delete card">'+RPW2.icon("trash",14)+'</button></td></tr>').join("")+"</tbody></table>")
+     :'<div class="rpw-empty"><div class="big">🃏</div><p>No cards yet.</p></div>';
+  };
+  paint();
+  m.el.querySelector("#ncAdd").onclick=()=>{
+    const f=m.el.querySelector("#ncFront").value.trim(), b=m.el.querySelector("#ncBack").value.trim();
+    if(!f||!b){toast("Both front and back are required","err");return;}
+    d.cards.push(mkCard(f,b)); save(); m.el.querySelector("#ncFront").value=""; m.el.querySelector("#ncBack").value="";
+    paint(); RPW2.sfx.ok();
+  };
+  m.el.querySelector("#cardList").addEventListener("click", async e=>{
+    const ed=e.target.closest("[data-ce]"), dl=e.target.closest("[data-cx]");
+    if(dl){ const cid=dl.dataset.cx; d.cards=d.cards.filter(c=>c.id!==cid); save(); paint(); }
+    else if(ed){ const card=d.cards.find(c=>c.id===ed.dataset.ce);
+      const em=RPW2.modal("Edit card",
+        '<div class="rpw-field"><label class="rpw-label">Front</label><textarea class="rpw-textarea" id="ef">'+esc(card.front)+'</textarea></div>'+
+        '<div class="rpw-field"><label class="rpw-label">Back</label><textarea class="rpw-textarea" id="eb">'+esc(card.back)+'</textarea></div>'+
+        '<div class="rpw-field"><label class="rpw-label">Tags (comma separated)</label><input class="rpw-input" id="et" value="'+esc((card.tags||[]).join(", "))+'"></div>'+
+        '<div class="row spread"><button class="rpw-btn ghost" data-x>Cancel</button><button class="rpw-btn primary" id="esave">Save</button></div>');
+      em.el.querySelector("#esave").onclick=()=>{ card.front=em.el.querySelector("#ef").value.trim()||card.front;
+        card.back=em.el.querySelector("#eb").value.trim()||card.back;
+        card.tags=em.el.querySelector("#et").value.split(",").map(s=>s.trim()).filter(Boolean);
+        save(); em.close(); paint(); toast("Card updated","ok"); };
+    }
+  });
+  m.el.querySelector("#dcExport").onclick=()=>exportDeckJSON(d);
+  m.el.querySelector("#dcCsv").onclick=()=>exportDeckCSV(d);
+  m.el.querySelector("#dcDel").onclick=async()=>{ m.close(); await delDeck(d.id); };
+}
+
+/* ---------- new deck / bulk ---------- */
+$("#btnNewDeck").onclick=()=>{
+  const m=RPW2.modal("Create deck",
+   '<div class="rpw-field"><label class="rpw-label">Deck name</label><input class="rpw-input" id="dn" placeholder="e.g. Organic Chemistry — Functional Groups"></div>'+
+   '<div class="rpw-field"><label class="rpw-label">Optional starter cards — one per line: <code>front | back</code></label>'+
+   '<textarea class="rpw-textarea bulk" id="dbulk" placeholder="Mitochondrion | Powerhouse of the cell&#10;Ribosome | Protein factory"></textarea></div>'+
+   '<div class="row spread"><button class="rpw-btn ghost" data-x>Cancel</button><button class="rpw-btn primary" id="dcreate">Create deck</button></div>');
+  m.el.querySelector("#dcreate").onclick=()=>{
+    const name=m.el.querySelector("#dn").value.trim(); if(!name){toast("Name required","err");return;}
+    const cards=parseBulk(m.el.querySelector("#dbulk").value);
+    const d=mkDeck(name,cards.map(c=>[c.f,c.b]));
+    decks.unshift(d); save(); m.close(); toast("Deck created with "+d.cards.length+" cards","ok"); show("decks");
+  };
+};
+function parseBulk(txt){
+  return txt.split(/\n+/).map(l=>l.trim()).filter(Boolean).map(l=>{
+    const p=l.split(/\s*(?:\||::|—|=>|\t)\s*/); return {f:p[0]||"",b:p.slice(1).join(" ")||""};
+  }).filter(c=>c.f&&c.b);
+}
+$("#btnBulk").onclick=()=>{
+  if(!decks.length){toast("Create a deck first","err");return;}
+  const m=RPW2.modal("Bulk import cards",
+   '<div class="rpw-field"><label class="rpw-label">Into deck</label><select class="rpw-select" id="bsel">'+decks.map(d=>'<option value="'+d.id+'">'+esc(d.name)+'</option>').join("")+'</select></div>'+
+   '<div class="rpw-field"><label class="rpw-label">Cards — one per line: <code>front | back</code> (also :: — => TAB)</label>'+
+   '<textarea class="rpw-textarea bulk" id="btxt"></textarea></div>'+
+   '<div class="row spread"><span class="small muted" id="bcount"></span><button class="rpw-btn primary" id="bgo">Import</button></div>');
+  const ta=m.el.querySelector("#btxt");
+  const upd=()=>m.el.querySelector("#bcount").textContent=parseBulk(ta.value).length+" valid lines";
+  ta.oninput=upd;
+  m.el.querySelector("#bgo").onclick=()=>{
+    const d=deckById(m.el.querySelector("#bsel").value); if(!d)return;
+    const cards=parseBulk(ta.value); if(!cards.length){toast("No valid lines found","err");return;}
+    cards.forEach(c=>d.cards.push(mkCard(c.f,c.b))); save(); m.close();
+    toast(cards.length+" cards imported to "+d.name,"ok"); show("decks");
+  };
+};
+
+/* ---------- QUIZ ---------- */
+function startQuiz(id){
+  const d=deckById(id); if(!d)return;
+  const pool=[...d.cards]; shuffle(pool);
+  const qs=pool.slice(0,10).filter(c=>d.cards.length>=4 ? true:true);
+  if(d.cards.length<4){toast("Need at least 4 cards for quiz mode","err");return;}
+  quiz={ deckId:id, items:qs.map(c=>makeQuizItem(c,d)), idx:0, correct:0 };
+  show("quiz"); paintQuiz();
+}
+function makeQuizItem(card,deck){
+  const wrongs=shuffle(deck.cards.filter(c=>c.id!==card.id)).slice(0,3).map(c=>c.back);
+  const opts=shuffle([card.back,...wrongs]);
+  return {card,opts,answer:opts.indexOf(card.back)};
+}
+function shuffle(a){for(let i=a.length-1;i>0;i--){const j=(Math.random()*(i+1))|0;[a[i],a[j]]=[a[j],a[i]];}return a;}
+function paintQuiz(){
+  const it=quiz.items[quiz.idx];
+  $("#quizScoreLbl").textContent="Correct: "+quiz.correct+" / "+quiz.items.length;
+  $("#quizQNum").textContent="Question "+(quiz.idx+1)+" of "+quiz.items.length+" · "+deckById(quiz.deckId).name;
+  $("#quizQuestion").textContent=it.card.front;
+  $("#quizOptions").innerHTML=it.opts.map((o,i)=>'<button class="quiz-opt" data-o="'+i+'">'+esc(o)+'</button>').join("");
+  $("#quizNextWrap").classList.add("hidden");
+}
+$("#quizOptions").addEventListener("click",e=>{
+  const b=e.target.closest("[data-o]"); if(!b||b.disabled)return;
+  const it=quiz.items[quiz.idx], pick=+b.dataset.o;
+  [...$("#quizOptions").children].forEach((el,i)=>{
+    el.disabled=true;
+    if(i===it.answer)el.classList.add("right");
+    else if(i===pick)el.classList.add("wrong");
+  });
+  const ok=pick===it.answer; if(ok){quiz.correct++;RPW2.sfx.ok();}else RPW2.sfx.err();
+  const d=deckById(quiz.deckId), card=d.cards.find(c=>c.id===it.card.id);
+  if(card){card.stats.seen++;if(ok)card.stats.right++;}
+  reviews.push({date:new Date().toISOString().slice(0,10),correct:ok});
+  if(reviews.length>500)reviews=reviews.slice(-400);
+  save(); RPW2.store.set(K.reviews,reviews);
+  $("#quizNextWrap").classList.remove("hidden");
+});
+$("#btnQuizNext").onclick=()=>{
+  quiz.idx++;
+  if(quiz.idx>=quiz.items.length) finishSession({mode:"quiz",total:quiz.items.length,correct:quiz.correct});
+  else paintQuiz();
+};
+
+/* ---------- exports / imports ---------- */
+function exportDeckJSON(d){ RPW2.download(slug(d.name)+".flashai.json", JSON.stringify({schema:"rpw2.deck.v1",name:d.name,cards:d.cards},null,2),"application/json"); toast("Deck exported","ok"); }
+function exportDeckCSV(d){
+  const rows=[["front","back","tags"],...d.cards.map(c=>[c.front,c.back,(c.tags||[]).join("; ")])];
+  RPW2.download(slug(d.name)+".csv", rows.map(r=>r.map(v=>'"'+String(v).replace(/"/g,'""')+'"').join(",")).join("\n"),"text/csv");
+  toast("CSV exported","ok");
+}
+function slug(s){return String(s).toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,"")||"deck";}
+$("#btnExportAll").onclick=()=>{ if(!decks.length){toast("Nothing to export","err");return;}
+  RPW2.download("flashai-all-decks.json",JSON.stringify({schema:"rpw2.deck.v1.exportAll",exported:RPW2.now(),decks},null,2),"application/json"); toast("All decks exported","ok"); };
+$("#btnImport").onclick=async()=>{
+  const f=await RPW2.pickFile(".json,application/json"); if(!f)return;
+  try{
+    const j=JSON.parse(await f.text());
+    const incoming=j.decks||(j.schema==="rpw2.deck.v1"?[j]:null);
+    if(!incoming)throw new Error("Unrecognized format");
+    let added=0;
+    incoming.forEach(src=>{
+      const d=mkDeck(src.name||"Imported "+new Date().toLocaleDateString());
+      d.cards=(src.cards||[]).map(c=>Object.assign(mkCard(c.front||"",c.back||""),{tags:c.tags||[],srs:c.srs||undefined}));
+      decks.push(d); added++;
+    });
+    save(); toast(added+" deck(s) imported","ok"); show("decks");
+  }catch(e){ toast("Import failed: "+e.message,"err"); }
+};
+
+/* ---------- misc wiring ---------- */
+$("#btnQuickStudy").onclick=()=>{ const id=$("#selStudyDeck").value; if(!id){toast("No deck selected","err");return;} startStudy(id); };
+$("#searchDecks").oninput=renderDecks;
+$("#btnExitStudy").onclick=()=>show("decks");
+$("#btnExitQuiz").onclick=()=>show("decks");
+$("#btnResDone").onclick=()=>show("decks");
+$("#btnEditCurrent").onclick=()=>startEditCards(study.deckId);
+document.addEventListener("keydown",e=>{
+  if(view!=="study")return;
+  if(e.code==="Space"){e.preventDefault();flip();}
+  if(study&&study.flipped&&["1","2","3","4"].includes(e.key))grade(+e.key-1);
+});
+addEventListener("resize",()=>{if(view==="decks")renderWeekChart();});
+show("decks");
+})();
+</script>
+</body>
+</html>

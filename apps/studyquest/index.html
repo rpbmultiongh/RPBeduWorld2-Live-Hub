@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark" style="--app-hue1:#f39c12;--app-hue2:#e74c3c">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>StudyQuest · RPBeduWorld2</title>
+<meta name="description" content="Gamified study hub: earn XP, build streaks, unlock achievements, hit daily goals.">
+<link rel="icon" href="../../shared/favicon.svg">
+<link rel="stylesheet" href="../../shared/rpw2.css">
+<style>
+  .hero-card { display:grid; grid-template-columns:auto 1fr auto; gap:20px; align-items:center; }
+  @media (max-width:700px){ .hero-card{grid-template-columns:1fr;} }
+  .level-ring { width:110px; height:110px; border-radius:50%; display:grid; place-items:center; position:relative;
+    background:conic-gradient(var(--app-hue1) calc(var(--p)*1%), var(--input-bg) 0);
+    box-shadow:var(--glow); flex:none; }
+  .level-ring::before { content:""; position:absolute; inset:9px; border-radius:50%; background:var(--panel-solid); }
+  .level-ring .lv { position:relative; text-align:center; z-index:1; }
+  .level-ring .lv b { font-size:30px; font-weight:900; display:block; line-height:1; }
+  .level-ring .lv span { font-size:10px; letter-spacing:.12em; color:var(--txt-2); text-transform:uppercase; }
+  .ach-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(150px,1fr)); gap:11px; }
+  .ach { text-align:center; padding:15px 9px; border-radius:13px; border:1px solid var(--glass-brd); background:var(--input-bg); opacity:.42; filter:grayscale(1); transition:all .3s ease; }
+  .ach.unlocked { opacity:1; filter:none; border-color:color-mix(in srgb,var(--app-hue1) 45%, transparent); background:linear-gradient(160deg, color-mix(in srgb,var(--app-hue1) 12%, transparent), transparent); box-shadow:var(--glow); }
+  .ach .ico { font-size:27px; margin-bottom:5px; }
+  .ach b { display:block; font-size:12px; }
+  .ach small { font-size:10.5px; color:var(--txt-2); }
+  .subj-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(170px,1fr)); gap:11px; }
+  .subj { padding:17px; border-radius:14px; border:1px solid var(--glass-brd); background:var(--panel); cursor:pointer; transition:all .18s ease; text-align:left; color:var(--txt); }
+  .subj:hover { transform:translateY(-4px); border-color:var(--app-hue2); box-shadow:var(--glow); }
+  canvas.chart{width:100%;height:130px;display:block;}
+  .log-item { display:flex; align-items:center; gap:10px; padding:8px 4px; border-bottom:1px solid var(--glass-brd); font-size:13px; }
+  .log-item:last-child{border-bottom:none;}
+</style>
+</head>
+<body>
+<header class="rpw-topbar">
+  <a class="rpw-home" href="../../index.html"><b>⬡ RPW²</b></a>
+  <div class="rpw-app-title"></div>
+  <div class="rpw-topbar-actions"><button class="rpw-theme-toggle" aria-label="Toggle theme"></button></div>
+</header>
+<main class="rpw-container">
+
+  <!-- HERO -->
+  <section class="rpw-panel rpw-rise hero-card mb-3">
+    <div class="level-ring" id="ring" style="--p:0"><div class="lv"><b id="lvNum">1</b><span>Level</span></div></div>
+    <div class="grow">
+      <div class="row wrap spread">
+        <h1 style="font-size:clamp(21px,3vw,28px)">Welcome back, <span class="grad-text" id="playerName">Scholar</span>!</h1>
+        <button class="rpw-btn sm ghost" id="btnRename">Rename</button>
+      </div>
+      <div class="row wrap mt-1" style="gap:16px">
+        <span class="row muted small" id="xpLbl"></span>
+        <span class="row muted small" id="streakLbl"></span>
+        <span class="row muted small" id="goalLbl"></span>
+      </div>
+      <div class="rpw-progress mt-2" title="Daily goal progress"><div id="goalBar" style="width:0%"></div></div>
+      <div class="tiny faint mt-1" id="goalText">Daily goal: 50 XP</div>
+    </div>
+    <div class="center" style="flex:none">
+      <div style="font-size:44px" id="moodEmoji">🔥</div>
+      <div class="tiny bold muted" id="todayXp">+0 XP today</div>
+    </div>
+  </section>
+
+  <!-- QUICK ACTIONS -->
+  <section class="rpw-panel mb-3 rpw-rise" style="animation-delay:.05s">
+    <div class="rpw-section-title">Log study activity <small>quick XP credit</small></div>
+    <div class="rpw-btn-row" id="quickActions"></div>
+  </section>
+
+  <!-- SUBJECT QUIZZES -->
+  <section class="mb-3 rpw-rise" style="animation-delay:.1s">
+    <div class="rpw-section-title">Challenge arenas <small>10 XP per correct answer</small></div>
+    <div class="subj-grid" id="subjGrid"></div>
+  </section>
+
+  <!-- ACHIEVEMENTS -->
+  <section class="rpw-panel mb-3 rpw-rise" style="animation-delay:.15s">
+    <div class="rpw-section-title">Achievements <span class="rpw-badge" id="achCount"></span></div>
+    <div class="ach-grid" id="achGrid"></div>
+  </section>
+
+  <!-- CHART + LOG -->
+  <div class="rpw-grid rpw-rise" style="animation-delay:.2s">
+    <section class="rpw-panel">
+      <div class="rpw-section-title">Weekly XP</div>
+      <canvas class="chart" id="weekChart" height="130"></canvas>
+    </section>
+    <section class="rpw-panel">
+      <div class="rpw-section-title">Activity log</div>
+      <div id="activityLog" style="max-height:180px;overflow:auto"></div>
+    </section>
+  </div>
+</main>
+
+<!-- QUIZ RUNNER -->
+<div id="quizModalHost"></div>
+<footer class="rpw-footer">StudyQuest · part of <b>RPBeduWorld2</b> · level up your learning habit 🔥</footer>
+<script src="../../shared/rpw2.js"></script>
+<script>
+(function(){
+"use strict";
+const K={p:"studyquest.player",log:"studyquest.log",ach:"studyquest.achievements"};
+const $=s=>document.querySelector(s);
+RPW2.initTopbar("StudyQuest","trophy");
+
+let player=RPW2.store.get(K.p,{name:"Scholar",xp:0,streak:0,lastActive:null,goal:50,goalDays:[],subjectHits:{},correctTotal:0,quizCount:0});
+let log=RPW2.store.get(K.log,[]);
+let unlocked=RPW2.store.get(K.ach,{});
+
+/* ---------- question banks ---------- */
+const BANK={
+ "🧬 Biology":[
+  ["Powerhouse of the cell?","Mitochondrion",["Ribosome","Nucleus","Golgi body"]],
+  ["DNA base that pairs with adenine","Thymine",["Guanine","Cytosine","Uracil"]],
+  ["Process cells use to divide for growth","Mitosis",["Meiosis","Apoptosis","Osmosis"]],
+  ["Photosynthesis occurs mainly in…","Chloroplasts",["Vacuoles","Lysosomes","Nucleoli"]],
+  ["Basic unit of heredity","Gene",["Protein","Enzyme","Vesicle"]],
+  ["Human blood type with no antigens","O negative",["AB positive","A positive","B negative"]],
+  ["Molecule storing genetic info","DNA",["ATP","Lipid","Starch"]],
+  ["Largest human organ","Skin",["Liver","Brain","Femur"]],
+  ["Enzyme in saliva that breaks starch","Amylase",["Pepsin","Lipase","Lactase"]],
+  ["Site of protein synthesis","Ribosome",["Nucleus","Lysosome","Peroxisome"]]],
+ "⚡ Physics":[
+  ["Force = mass × …","Acceleration",["Velocity","Distance","Time"]],
+  ["Speed of light ≈","300,000 km/s",["3,000 km/s","150,000 km/s","1,000,000 km/s"]],
+  ["Unit of electrical resistance","Ohm",["Volt","Ampere","Joule"]],
+  ["Energy cannot be created or destroyed is the law of…","Conservation of energy",["Entropy","Gravity","Motion"]],
+  ["Planet with strongest gravity in our system","Jupiter",["Earth","Saturn","Neptune"]],
+  ["Device converting mechanical→electrical energy","Generator",["Motor","Transformer","Capacitor"]],
+  ["Newton's 3rd law: every action has an equal and opposite…","Reaction",["Force pair","Vector","Momentum"]],
+  ["Sound cannot travel through…","Vacuum",["Water","Steel","Air"]],
+  ["Unit of power","Watt",["Newton","Pascal","Coulomb"]],
+  ["Light bending around obstacles","Diffraction",["Reflection","Refraction","Dispersion"]]],
+ "➗ Math":[
+  ["Derivative of x²","2x",["x²/2","x³/3","2"]],
+  ["√144","12",["14","11","24"]],
+  ["Sum of angles in a triangle","180°",["90°","270°","360°"]],
+  ["Value of π to 3 decimals","3.142",["3.114","3.214","3.512"]],
+  ["If f(x)=2x+3, f(4)=?","11",["8","10","14"]],
+  ["Next prime after 7","11",["9","10","13"]],
+  ["sin(0)=","0",["1","-1","½"]],
+  ["Area of circle formula","πr²",["2πr","πd","r²"]],
+  ["Slope of y=−3x+7","−3",["7","3","−7"]],
+  ["LCM of 4 and 6","12",["24","10","8"]]],
+ "🔭 Space & Earth":[
+  ["Closest planet to the Sun","Mercury",["Venus","Mars","Earth"]],
+  ["Galaxy containing Earth","Milky Way",["Andromeda","Triangulum","Sombrero"]],
+  ["Atmosphere layer where weather happens","Troposphere",["Stratosphere","Mesosphere","Exosphere"]],
+  ["Water covers ~__% of Earth's surface","71%",["51%","61%","81%"]],
+  ["Red Planet","Mars",["Venus","Jupiter","Mercury"]],
+  ["Moon phase fully illuminated","Full moon",["New moon","Quarter","Crescent"]],
+  ["Force keeping planets in orbit","Gravity",["Magnetism","Friction","Inertia"]],
+  ["Hottest planet (surface)","Venus",["Mercury","Mars","Jupiter"]],
+  ["Saturn's most famous feature","Rings",["Volcanoes","Oceans","Storm spot"]],
+  ["Big Bang happened ≈ __ years ago","13.8 billion",["6,000","4.5 million","200 million"]]],
+ "📚 Study Skills":[
+  ["Reviewing material at increasing intervals is called…","Spaced repetition",["Cramming","Highlighting","Skimming"]],
+  ["Best evidence-backed practice technique","Active recall",["Re-reading","Listening once","Copying notes"]],
+  ["25-min focused work sessions are known as…","Pomodoro technique",["Time boxing","Deep audit","Batching"]],
+  ["Teaching material to someone else leverages…","The protégé effect",["The primacy effect","Flow state","Chunking"]],
+  ["Mixing topics in one session is called…","Interleaving",["Blocking","Stacking","Filtering"]],
+  ["Sleep's role in learning includes…","Memory consolidation",["Muscle growth only","Nothing","Detoxing blood"]],
+  ["A mind map primarily supports…","Visual association",["Speed reading","Handwriting","Silence"]],
+  ["Testing yourself before you feel ready is…","Desirable difficulty",["Cheating","Guessing","Grinding"]],
+  ["Distraction-free deep work state","Flow",["Multitasking","Buffering","Looping"]],
+  ["Best first step when facing a big project","Break it into tasks",["Start anywhere","Wait for motivation","Read everything"]]]
+};
+
+/* ---------- derived ---------- */
+const level=xp=>Math.floor(Math.log(xp/100+1)/Math.log(1.3))+ (xp<100?1:Math.floor(Math.log(xp/100)/Math.log(1.3))+2);
+function xpForLevel(l){return Math.round(100*(Math.pow(1.3,l-1)-1));}
+function curLevel(){return player.xp<100?1:level(player.xp);}
+function todayKey(){return new Date().toISOString().slice(0,10);}
+function xpToday(){return log.filter(e=>e.date===todayKey()).reduce((a,e)=>a+e.xp,0);}
+
+/* ---------- achievements ---------- */
+const ACH=[
+ {id:"first-quiz",ico:"🎯",name:"First Blood",desc:"Complete your first quiz",test:p=>p.quizCount>=1},
+ {id:"quiz-5",ico:"🎪",name:"Quiz Machine",desc:"Complete 5 quizzes",test:p=>p.quizCount>=5},
+ {id:"perfect",ico:"💯",name:"Flawless",desc:"Score 100% on a quiz",test:p=>!!p.hadPerfect},
+ {id:"streak-3",ico:"🔥",name:"On Fire",desc:"3-day streak",test:p=>p.streak>=3},
+ {id:"streak-7",ico:"🌋",name:"Unstoppable",desc:"7-day streak",test:p=>p.streak>=7},
+ {id:"lvl-5",ico:"⭐",name:"Rising Star",desc:"Reach level 5",test:p=>curLevel()>=5},
+ {id:"xp-500",ico:"💎",name:"XP Hoarder",desc:"Earn 500 total XP",test:p=>p.xp>=500},
+ {id:"correct-100",ico:"🧠",name:"Century Brain",desc:"100 correct answers",test:p=>p.correctTotal>=100},
+ {id:"night",ico:"🦉",name:"Night Owl",desc:"Study after 10pm",test:p=>!!p.nightOwl},
+ {id:"early",ico:"🌅",name:"Early Bird",desc:"Study before 7am",test:p=>!!p.earlyBird},
+ {id:"all-subj",ico:"🗺️",name:"Explorer",desc:"Try every subject",test:(p)=>Object.keys(p.subjectHits||{}).length>=Object.keys(BANK).length},
+ {id:"goal-5",ico:"🏅",name:"Goal Getter",desc:"Hit daily goal 5 days",(test:p=>(p.goalDays||[]).length>=5)}
+];
+
+/* ---------- core actions ---------- */
+function addXP(amount,label){
+  const prevLv=curLevel();
+  player.xp+=amount;
+  const t=new Date();
+  if(t.getHours()>=22)player.nightOwl=true;
+  if(t.getHours()<7)player.earlyBird=true;
+  // streak
+  const tk=todayKey(), yk=new Date(Date.now()-864e5).toISOString().slice(0,10);
+  if(player.lastActive!==tk){
+    player.streak=player.lastActive===yk?player.streak+1:1;
+    player.lastActive=tk;
+  }
+  log.unshift({date:tk,time:t.toISOString(),label,xp:amount});
+  log=log.slice(0,60);
+  RPW2.store.set(K.p,player); RPW2.store.set(K.log,log);
+  toast("+"+amount+" XP — "+label,"ok"); RPW2.sfx.ok();
+  checkGoal(); checkAchievements(); renderAll();
+  const newLv=curLevel();
+  if(newLv>prevLv){ setTimeout(()=>{RPW2.confetti();RPW2.sfx.level();toast("LEVEL UP! You reached level "+newLv,"info");},450); }
+}
+function checkGoal(){
+  if(xpToday()>=player.goal&&!(player.goalDays||[]).includes(todayKey())){
+    player.goalDays=(player.goalDays||[]).concat([todayKey()]);
+    addXPBonus(25,"Daily goal smashed!");
+  }
+}
+function addXPBonus(n,msg){ player.xp+=n; log.unshift({date:todayKey(),time:new Date().toISOString(),label:msg,xp:n}); RPW2.store.set(K.p,player); RPW2.store.set(K.log,log); toast("+"+n+" bonus XP — "+msg,"info"); }
+function checkAchievements(){
+  ACH.forEach(a=>{
+    if(!unlocked[a.id]&&a.test(player)){
+      unlocked[a.id]=new Date().toISOString();
+      RPW2.store.set(K.ach,unlocked);
+      setTimeout(()=>{RPW2.confetti(innerWidth*.5,innerHeight*.35);RPW2.sfx.win();},600);
+      setTimeout(()=>toast("🏆 Achievement unlocked: "+a.name,"ok"),800);
+    }
+  });
+}
+
+/* ---------- render ---------- */
+function renderAll(){
+  const lv=curLevel(), base=xpForLevel(lv), next=xpForLevel(lv+1);
+  const pct=Math.max(0,Math.min(100,(player.xp-base)/(next-base)*100));
+  $("#ring").style.setProperty("--p",pct.toFixed(1));
+  $("#lvNum").textContent=lv;
+  $("#playerName").textContent=player.name;
+  $("#xpLbl").innerHTML=RPW2.icon("zap",14)+" "+player.xp+" XP";
+  $("#streakLbl").innerHTML=RPW2.icon("flame",14)+" "+player.streak+"-day streak";
+  $("#goalLbl").innerHTML=RPW2.icon("target",14)+" goal "+Math.min(xpToday(),player.goal)+"/"+player.goal;
+  $("#goalBar").style.width=Math.min(100,xpToday()/player.goal*100)+"%";
+  $("#goalText").textContent="Daily goal: "+player.goal+" XP · hit it "+((player.goalDays||[]).length)+" days";
+  $("#todayXp").textContent="+"+xpToday()+" XP today";
+  $("#moodEmoji").textContent=player.streak>=7?"🌋":player.streak>=3?"🔥":player.streak>=1?"✨":"🌱";
+  $("#achCount").textContent=Object.keys(unlocked).length+" / "+ACH.length;
+  $("#achGrid").innerHTML=ACH.map(a=>'<div class="ach'+(unlocked[a.id]?" unlocked":"")+'" title="'+esc(a.desc)+'"><div class="ico">'+a.ico+'</div><b>'+esc(a.name)+'</b><small>'+esc(a.desc)+'</small></div>').join("");
+  $("#activityLog").innerHTML=log.length?log.slice(0,15).map(e=>'<div class="log-item"><span class="badge-ok rpw-badge ok">+'+e.xp+'</span><span class="grow truncate">'+esc(e.label)+'</span><span class="faint tiny">'+new Date(e.time).toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"})+'</span></div>').join(""):'<div class="rpw-empty" style="padding:22px"><div class="big">📝</div><p>No activity yet — go earn some XP!</p></div>';
+  drawWeekChart();
+}
+function drawWeekChart(){
+  const cv=$("#weekChart"),ctx=cv.getContext("2d");
+  cv.width=cv.clientWidth*devicePixelRatio; cv.height=130*devicePixelRatio; ctx.scale(devicePixelRatio,devicePixelRatio);
+  const days=[...Array(7)].map((_,i)=>{const d=new Date();d.setDate(d.getDate()-6+i);return d.toISOString().slice(0,10);});
+  const vals=days.map(d=>log.filter(e=>e.date===d).reduce((a,e)=>a+e.xp,0));
+  const max=Math.max(...vals,50),W=cv.clientWidth,H=120,pad=8;
+  ctx.clearRect(0,0,W,H);
+  days.forEach((day,i)=>{
+    const slot=(W-pad*2)/7,bw=slot-12,x=pad+i*slot,h=(vals[i]/max)*(H-26);
+    const g=ctx.createLinearGradient(0,H-h,0,H);g.addColorStop(0,"#f39c12");g.addColorStop(1,"#e74c3c");
+    ctx.fillStyle=g;rr(ctx,x+6,H-h,bw,Math.max(h,3),5);ctx.fill();
+    ctx.fillStyle=document.documentElement.dataset.theme==="dark"?"#98a2c0":"#55607e";
+    ctx.font="600 9.5px system-ui";ctx.textAlign="center";
+    ctx.fillText(new Date(day).toLocaleDateString(undefined,{weekday:"short"}).slice(0,3),x+bw/2+6,H-4);
+    if(vals[i])ctx.fillText(vals[i]+"",x+bw/2+6,H-h-5);
+  });
+}
+function rr(c,x,y,w,h,r){c.beginPath();c.moveTo(x+r,y);c.arcTo(x+w,y,x+w,y+h,r);c.arcTo(x+w,y+h,x,y+h,r);c.arcTo(x,y+h,x,y,r);c.arcTo(x,y,x+w,y,r);c.closePath();}
+
+/* ---------- quick actions ---------- */
+const QUICK=[["Studied 30 min",15],["Studied 60 min",30],["Read a chapter",12],["Made flashcards",10],["Watched a lecture",10],["Practiced problems",15],["Reviewed old notes",8]];
+$("#quickActions").innerHTML=QUICK.map((q,i)=>'<button class="rpw-chip" data-qa="'+i+'">'+q[0]+' <b style="color:var(--app-hue1)">+'+q[1]+'</b></button>').join("");
+$("#quickActions").addEventListener("click",e=>{
+  const b=e.target.closest("[data-qa]");if(!b)return;
+  const q=QUICK[+b.dataset.qa];addXP(q[1],q[0]);
+});
+
+/* ---------- subjects ---------- */
+$("#subjGrid").innerHTML=Object.keys(BANK).map(s=>'<button class="subj" data-subj="'+esc(s)+'"><div style="font-size:30px">'+s.split(" ")[0]+'</div><b>'+esc(s.replace(/^\S+\s/,""))+'</b><div class="tiny faint mt-1">'+BANK[s].length+' questions · +10 XP each</div></button>').join("");
+$("#subjGrid").addEventListener("click",e=>{
+  const b=e.target.closest("[data-subj]");if(b)return startQuiz(b.dataset.subj);
+});
+
+/* ---------- quiz runner ---------- */
+function shuffle(a){for(let i=a.length-1;i>0;i--){const j=(Math.random()*(i+1))|0;[a[i],a[j]]=[a[j],a[i]];}return a;}
+function startQuiz(subject){
+  const qs=shuffle([...BANK[subject]]).slice(0,8);
+  let idx=0,score=0;
+  const m=RPW2.modal("Arena · "+esc(subject),'<div id="qa"></div>');
+  const paintQ=()=>{
+    const q=qs[idx];
+    m.el.querySelector("#qa").innerHTML=
+      '<div class="row spread mb-2"><span class="small muted">Question '+(idx+1)+" / "+qs.length+'</span><span class="small bold grad-text">Score '+score+'</span></div>'+
+      '<h3 class="mb-2" style="font-size:18px">'+esc(q[0])+'</h3>'+
+      '<div id="opts">'+shuffle([q[1],...q[2]]).map(o=>'<button class="quiz-opt" data-o="'+esc(o)+'">'+esc(o)+'</button>').join("")+"</div>";
+    m.el.querySelector("#qa").querySelectorAll(".quiz-opt").forEach(btn=>btn.onclick=()=>{
+      const right=btn.dataset.o===q[1];
+      m.el.querySelectorAll(".quiz-opt").forEach(el=>{el.disabled=true;if(el.dataset.o===q[1])el.classList.add("right");else if(el===btn)el.classList.add("wrong");});
+      if(right){score++;player.correctTotal++;RPW2.sfx.ok();}
+      else RPW2.sfx.err();
+      player.subjectHits=player.subjectHits||{};player.subjectHits[subject]=(player.subjectHits[subject]||0)+1;
+      RPW2.store.set(K.p,player);
+      setTimeout(()=>{
+        idx++;
+        if(idx<qs.length)paintQ();
+        else{
+          player.quizCount++;if(score===qs.length)player.hadPerfect=true;
+          RPW2.store.set(K.p,player);
+          addXP(score*10,'Quiz "'+subject.replace(/^\S+\s/,"")+'" — '+score+"/"+qs.length);
+          m.el.querySelector("#qa").innerHTML='<div class="center" style="padding:20px"><div style="font-size:52px">'+(score/qs.length>=.8?"🏆":"💪")+'</div><h2 class="grad-text">'+score+"/"+qs.length+'</h2><p class="muted mt-1">'+(score*10)+" XP earned"+(score===qs.length?" — PERFECT!":"")+'</p></div>';
+          checkAchievements();renderAll();
+          setTimeout(()=>m.close(),1900);
+        }
+      },750);
+    });
+  };
+  paintQ();
+}
+
+/* ---------- misc ---------- */
+$("#btnRename").onclick=()=>{
+  const m=RPW2.modal("Choose your name",
+   '<div class="rpw-field"><input class="rpw-input" id="rnIn" value="'+esc(player.name)+'" maxlength="24"></div>'+
+   '<div class="row spread"><button class="rpw-btn ghost" data-x>Cancel</button><button class="rpw-btn primary" id="rnGo">Save</button></div>');
+  m.el.querySelector("#rnGo").onclick=()=>{
+    const v=m.el.querySelector("#rnIn").value.trim();if(v){player.name=v;RPW2.store.set(K.p,player);renderAll();}
+    m.close();
+  };
+};
+document.addEventListener("keydown",e=>{if(e.key==="Enter"&&document.activeElement.id==="rnIn")$("#rnGo")&&$("#rnGo").click();});
+
+checkAchievements();renderAll();
+})();
+</script>
+</body>
+</html>

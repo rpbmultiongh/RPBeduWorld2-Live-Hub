@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark" style="--app-hue1:#d35400;--app-hue2:#e67e22">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SCORM Forge Pro · RPBeduWorld2</title>
+<meta name="description" content="Package any web content into a SCORM 1.2 / 2004 zip with a visual manifest editor.">
+<link rel="icon" href="../../shared/favicon.svg">
+<link rel="stylesheet" href="../../shared/rpw2.css">
+<style>
+  .dropzone { border:2px dashed var(--glass-brd); border-radius:var(--rpw-radius-lg); padding:38px 20px; text-align:center; transition:all .25s ease; cursor:pointer; background:var(--input-bg); }
+  .dropzone:hover, .dropzone.drag { border-color:var(--app-hue2); background:color-mix(in srgb,var(--app-hue2) 7%, transparent); box-shadow:var(--glow); }
+  .file-row { display:flex; align-items:center; gap:10px; padding:9px 12px; border-bottom:1px solid var(--glass-brd); font-size:13px; }
+  .file-row:last-child{border:none;}
+  .file-row .path{font-family:var(--rpw-mono);font-size:12px;}
+  .two-col { display:grid; grid-template-columns:1fr 1fr; gap:16px; align-items:start; }
+  @media (max-width:900px){ .two-col{grid-template-columns:1fr;} }
+  textarea.manifest { min-height:260px; font-family:var(--rpw-mono); font-size:11.5px; line-height:1.5; white-space:pre; }
+  .step-dot { display:inline-grid; place-items:center; width:24px; height:24px; border-radius:50%; background:linear-gradient(120deg,var(--app-hue1),var(--app-hue2)); color:#fff; font-weight:800; font-size:12px; margin-right:8px; flex:none; }
+</style>
+</head>
+<body>
+<header class="rpw-topbar">
+  <a class="rpw-home" href="../../index.html"><b>⬡ RPW²</b></a>
+  <div class="rpw-app-title"></div>
+  <div class="rpw-topbar-actions"><button class="rpw-theme-toggle" aria-label="Toggle theme"></button></div>
+</header>
+<main class="rpw-container">
+  <div class="rpw-hero rpw-rise">
+    <h1>SCORM <span class="grad">Forge Pro</span></h1>
+    <p>Drop your course files → forge a standards-compliant SCORM package that any LMS can ingest.</p>
+  </div>
+
+  <!-- STEP 1 -->
+  <section class="rpw-panel mb-3 rpw-rise" style="animation-delay:.05s">
+    <div class="rpw-section-title"><span class="step-dot">1</span> Add course files</div>
+    <div class="dropzone" id="dz">
+      <div style="font-size:40px;margin-bottom:8px">📦</div>
+      <b>Drag & drop files or folders here</b>
+      <p class="muted small mt-1">or click to browse · HTML entry point + assets (images, css, js)</p>
+      <input type="file" id="fileInput" multiple hidden>
+    </div>
+    <div id="fileListWrap" class="hidden mt-3">
+      <div class="row spread mb-2"><b class="small" id="fileCount"></b><button class="rpw-btn sm danger" id="btnClearFiles">Clear all</button></div>
+      <div id="fileList"></div>
+    </div>
+  </section>
+
+  <!-- STEP 2 -->
+  <section class="rpw-panel mb-3 rpw-rise" style="animation-delay:.1s">
+    <div class="rpw-section-title"><span class="step-dot">2</span> Package metadata</div>
+    <div class="rpw-grid">
+      <div class="rpw-field"><label class="rpw-label">Course title *</label><input class="rpw-input" id="fTitle" placeholder="Introduction to Cells"></div>
+      <div class="rpw-field"><label class="rpw-label">Identifier (auto-generated if empty)</label><input class="rpw-input mono" id="fId" placeholder="MANIFEST-…"></div>
+      <div class="rpw-field"><label class="rpw-label">Description</label><input class="rpw-input" id="fDesc" placeholder="A short description for the LMS catalog"></div>
+      <div class="row wrap" style="gap:16px;margin-top:26px">
+        <label class="small row" style="gap:7px;cursor:pointer"><input type="radio" name="scormVer" value="1.2" checked> SCORM 1.2 (most compatible)</label>
+        <label class="small row" style="gap:7px;cursor:pointer"><input type="radio" name="scormVer" value="2004"> SCORM 2004 (4th Ed.)</label>
+      </div>
+    </div>
+    <div class="two-col mt-2">
+      <div class="rpw-field"><label class="rpw-label">Entry point (launch file)</label>
+        <select class="rpw-select" id="fEntry"><option value="">— add files first —</option></select></div>
+      <div class="rpw-field"><label class="rpw-label">Mastery score (%) — optional</label><input class="rpw-input" id="fMastery" type="number" min="0" max="100" placeholder="e.g. 80"></div>
+    </div>
+  </section>
+
+  <!-- STEP 3 -->
+  <section class="rpw-panel mb-3 rpw-rise" style="animation-delay:.15s">
+    <div class="rpw-section-title"><span class="step-dot">3</span> Review imsmanifest.xml <button class="rpw-btn sm ghost" id="btnRegen" title="Regenerate from metadata">↻ Regenerate</button></div>
+    <textarea class="rpw-textarea manifest" id="manifestOut" spellcheck="false" placeholder="// Fill in metadata and add files — the manifest generates automatically"></textarea>
+  </section>
+
+  <!-- STEP 4 -->
+  <section class="rpw-panel rpw-rise" style="animation-delay:.2s">
+    <div class="rpw-section-title"><span class="step-dot">4</span> Forge & download</div>
+    <div class="row wrap spread">
+      <div class="small muted" id="forgeStatus">Ready when you are.</div>
+      <button class="rpw-btn primary lg" id="btnForge">⚒️ Forge SCORM package (.zip)</button>
+    </div>
+    <div class="tiny faint mt-2">Includes: imsmanifest.xml · API wrapper auto-injected into the launch file · correct schema/adlcp namespaces per version.</div>
+  </section>
+</main>
+<footer class="rpw-footer">SCORM Forge Pro · part of <b>RPBeduWorld2</b> · everything happens locally in your browser</footer>
+<script src="../../shared/vendor/jszip.min.js"></script>
+<script src="../../shared/rpw2.js"></script>
+<script>
+(function(){
+"use strict";
+const $=s=>document.querySelector(s);
+RPW2.initTopbar("SCORM Forge Pro","layers");
+
+let files=[]; // {path, blob}
+
+/* ---------- dropzone ---------- */
+const dz=$("#dz");
+dz.onclick=()=>$("#fileInput").click();
+$("#fileInput").onchange=e=>addFiles([...e.target.files]);
+["dragover","dragenter"].forEach(ev=>dz.addEventListener(ev,e=>{e.preventDefault();dz.classList.add("drag");}));
+["dragleave","drop"].forEach(ev=>dz.addEventListener(ev,e=>{e.preventDefault();dz.classList.remove("drag");}));
+dz.addEventListener("drop",e=>{
+  const items=[...(e.dataTransfer.items||[])];
+  const entries=items.map(i=>i.webkitGetAsEntry&&i.webkitGetAsEntry()).filter(Boolean);
+  if(entries.length){entries.forEach(traverseEntry);}
+  else addFiles([...e.dataTransfer.files]);
+});
+function traverseEntry(entry,path){
+  path=path||"";
+  if(entry.isFile){
+    entry.file(f=>{ f._relPath=path+entry.name; addFiles([f]); });
+  } else if(entry.isDirectory){
+    const reader=entry.createReader();
+    reader.readEntries(children=>children.forEach(ch=>traverseEntry(ch,path+entry.name+"/")));
+  }
+}
+function addFiles(list){
+  list.forEach(f=>{
+    const path=f._relPath||f.webkitRelativePath||f.name;
+    if(!files.some(x=>x.path===path))files.push({path,blob:f});
+  });
+  paintFiles();regenManifest();
+}
+function paintFiles(){
+  $("#fileListWrap").classList.toggle("hidden",!files.length);
+  $("#fileCount").textContent=files.length+" file"+(files.length!==1?"s":"");
+  $("#fileList").innerHTML=files.map((f,i)=>'<div class="file-row">'+RPW2.icon("file",14)+
+    '<span class="path grow truncate">'+esc(f.path)+'</span>'+
+    '<span class="faint tiny">'+fmtSize(f.blob.size)+'</span>'+
+    '<button class="rpw-btn icon-only" data-rm="'+i+'" aria-label="Remove file" style="width:28px;height:28px">'+RPW2.icon("x",13)+'</button></div>').join("");
+  // entry select
+  const sel=$("#fEntry"),cur=sel.value;
+  const htmls=files.filter(f=>/\.html?$/i.test(f.path)).map(f=>f.path);
+  sel.innerHTML=htmls.length?htmls.map(p=>'<option>'+esc(p)+'</option>').join(""):'<option value="">— no html files —</option>';
+  if(cur&&htmls.includes(cur))sel.value=cur;
+  updateStatus();
+}
+$("#fileList").addEventListener("click",e=>{
+  const b=e.target.closest("[data-rm]");if(!b)return;
+  files.splice(+b.dataset.rm,1);paintFiles();regenManifest();
+});
+$("#btnClearFiles").onclick=async()=>{
+  if(await RPW2.confirm({title:"Clear all files?",danger:true,yesLabel:"Clear"})){files=[];paintFiles();regenManifest();}
+};
+function fmtSize(n){return n>1048576?(n/1048576).toFixed(1)+" MB":n>1024?(n/1024).toFixed(1)+" KB":n+" B";}
+
+/* ---------- manifest generation ---------- */
+function meta(){
+  return {
+    id:$("#fId").value.trim()||autoId(),
+    title:$("#fTitle").value.trim()||"Untitled Course",
+    desc:$("#fDesc").value.trim(),
+    ver:(document.querySelector('input[name="scormVer"]:checked')||{}).value==="2004"?"2004":"1.2",
+    entry:$("#fEntry").value,
+    mastery:$("#fMastery").value
+  };
+}
+function autoId(){return "MANIFEST-"+Math.random().toString(36).slice(2,10).toUpperCase();}
+function genManifest(){
+  const m=meta();
+  if(m.ver==="1.2"){
+    return '<?xml version="1.0" encoding="UTF-8"?>\n'+
+    '<manifest identifier="'+esc(m.id)+'" version="1.0"\n'+
+    '          xmlns="http://www.imsproject.org/xsd/imscp_rootv1p1p2"\n'+
+    '          xmlns:adlcp="http://www.adlnet.org/xsd/adlcp_rootv1p2"\n'+
+    '          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"\n'+
+    '          xsi:schemaLocation="http://www.imsproject.org/xsd/imscp_rootv1p1p2 imscp_rootv1p1p2.xsd\n'+
+    '                              http://www.imsglobal.org/xsd/imsmd_rootv1p2p1 imsmd_rootv1p2p1.xsd\n'+
+    '                              http://www.adlnet.org/xsd/adlcp_rootv1p2 adlcp_rootv1p2.xsd">\n'+
+    '  <metadata><schema>ADL SCORM</schema><schemaversion>1.2</schemaversion></metadata>\n'+
+    '  <organizations default="ORG-1">\n'+
+    '    <organization identifier="ORG-1">\n'+
+    '      <title>'+esc(m.title)+'</title>\n'+
+    '      <item identifier="ITEM-1" isvisible="true" identifierref="RES-1">\n'+
+    '        <title>'+esc(m.title)+'</title>\n'+(m.mastery?'        <adlcp:masteryscore>'+(+m.mastery||80)+'</adlcp:masteryscore>\n':"")+
+    '      </item>\n'+
+    '    </organization>\n'+
+    '  </organizations>\n'+
+    '  <resources>\n'+
+    '    <resource identifier="RES-1" type="webcontent" adlcp:scormtype="sco" href="'+esc(m.entry||"index.html")+'">\n'+
+    files.map(f=>'      <file href="'+esc(f.path)+'"/>').join("\n")+"\n"+
+    '    </resource>\n'+
+    '  </resources>\n'+
+    '</manifest>';
+  }
+  return '<?xml version="1.0" encoding="UTF-8"?>\n'+
+  '<manifest identifier="'+esc(m.id)+'" version="1.0"\n'+
+  '          xmlns="http://www.imsglobal.org/xsd/imscp_v1p1"\n'+
+  '          xmlns:adlcp="http://www.adlnet.org/xsd/adlcp_v1p3"\n'+
+  '          xmlns:adlseq="http://www.adlnet.org/xsd/adlseq_v1p3"\n'+
+  '          xmlns:adlnav="http://www.adlnet.org/xsd/adlnav_v1p3"\n'+
+  '          xmlns:imsss="http://www.imsglobal.org/xsd/imsss"\n'+
+  '          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"\n'+
+  '          xsi:schemaLocation="http://www.imsglobal.org/xsd/imscp_v1p1 imscp_v1p1.xsd\n'+
+  '                              http://www.adlnet.org/xsd/adlcp_v1p3 adlcp_v1p3.xsd\n'+
+  '                              http://www.adlnet.org/xsd/adlseq_v1p3 adlseq_v1p3.xsd\n'+
+  '                              http://www.adlnet.org/xsd/adlnav_v1p3 adlnav_v1p3.xsd\n'+
+  '                              http://www.imsglobal.org/xsd/imsss imsss_v1p0.xsd">\n'+
+  '  <metadata><schema>ADL SCORM</schema><schemaversion>2004 4th Edition</schemaversion></metadata>\n'+
+  '  <organizations default="ORG-1">\n'+
+  '    <organization identifier="ORG-1">\n'+
+  '      <title>'+esc(m.title)+'</title>\n'+
+  '      <item identifier="ITEM-1" isvisible="true" identifierref="RES-1">\n'+
+  '        <title>'+esc(m.title)+'</title>\n'+
+  '        <imsss:sequencing><imsss:deliveryControls completionSetByContent="true" objectiveSetByContent="true"/></imsss:sequencing>\n'+
+  '      </item>\n'+
+  '    </organization>\n'+
+  '  </organizations>\n'+
+  '  <resources>\n'+
+  '    <resource identifier="RES-1" type="webcontent" adlcp:scormType="sco" href="'+esc(m.entry||"index.html")+'">\n'+
+  files.map(f=>'      <file href="'+esc(f.path)+'"/>').join("\n")+"\n"+
+  '    </resource>\n'+
+  '  </resources>\n'+
+  '</manifest>';
+}
+function regenManifest(){ $("#manifestOut").value = files.length?genManifest():""; updateStatus(); }
+["change"].forEach(ev=>{
+  ["#fTitle","#fId","#fDesc","#fEntry","#fMastery"].forEach(sel=>$(sel).addEventListener(ev,regenManifest));
+});
+document.querySelectorAll('input[name="scormVer"]').forEach(r=>r.addEventListener("change",regenManifest));
+$("#btnRegen").onclick=()=>{regenManifest();toast("Manifest regenerated","ok");};
+
+/* ---------- API wrapper injection ---------- */
+function injectApiWrapper(html,m){
+  const wrapper='<script>\n'+
+  '// SCORM API finder (injected by SCORM Forge Pro)\n'+
+  '(function(){\n'+
+  '  var api=null;\n'+
+  '  function find(win,depth){try{while(win&&depth<12){if(win.API)return win.API;if(win.parent&&win.parent===win)break;win=win.parent;depth++;}}catch(e){}return null;}\n'+
+  '  '+((m.ver==="1.2")
+    ?'api=find(window,0)||find(window.opener,0);\n  window.SCORM={init:function(){return api?api.LMSInitialize(""):"false";},set:function(k,v){return api?api.LMSSetValue(k,v):"false";},get:function(k){return api?api.LMSGetValue(k):"";},commit:function(){return api?api.LMSCommit(""):"false";},finish:function(){return api?api.LMSFinish(""):"false";}};'
+    :'api=(function(w,d){try{while(w&&d<12){if(w.API_1484_11)return w.API_1484_11;w=w.parent;d++;}}catch(e){}return null;})(window,0)||find(window.opener,0);\n  window.SCORM={init:function(){return api?api.Initialize(""):"false";},set:function(k,v){return api?api.SetValue(k,v):"false";},get:function(k){return api?api.GetValue(k):"";},commit:function(){return api?api.Commit(""):"false";},finish:function(){return api?api.Terminate(""):"false";}};')+
+  '\n  window.addEventListener("unload",function(){window.SCORM.finish();});\n})();\n<\/scr'+'ipt>';
+  if(/<head[^>]*>/i.test(html))return html.replace(/<head[^>]*>/i,"$&\n"+wrapper);
+  return wrapper+html;
+}
+
+/* ---------- forge ---------- */
+$("#btnForge").onclick=async()=>{
+  const m=meta();
+  if(!files.length){toast("Add course files first","err");return;}
+  if(!$("#fTitle").value.trim()){toast("Course title is required","err");$("#fTitle").focus();return;}
+  if(!m.entry){toast("Select an HTML entry point","err");return;}
+  $("#forgeStatus").innerHTML='Forging…'; 
+  try{
+    const zip=new JSZip();
+    let entryBlob=null;
+    for(const f of files){
+      if(f.path===m.entry){
+        let txt=await f.blob.text();
+        txt=injectApiWrapper(txt,m);
+        entryBlob=new Blob([txt],{type:"text/html"});
+        zip.file(f.path,txt);
+      } else zip.file(f.path,f.blob);
+    }
+    const manifest=$("#manifestOut").value||genManifest();
+    zip.file("imsmanifest.xml",manifest);
+    const out=await zip.generateAsync({type:"blob",compression:"DEFLATE"});
+    RPW2.download(slugify(m.title)+"_SCORM"+(m.ver==="2004"?"2004":"1.2")+".zip",out,"application/zip");
+    $("#forgeStatus").innerHTML='<span style="color:var(--rpw-ok)">✔ Forged!</span> '+files.length+' files packaged ('+fmtSize(out.size)+'). Import this zip into your LMS.';
+    toast("SCORM package forged!","ok");RPW2.confetti();
+  }catch(e){$("#forgeStatus").textContent="Failed: "+e.message;toast("Forge failed: "+e.message,"err");}
+};
+function updateStatus(){
+  const m=meta();
+  $("#forgeStatus").textContent=!files.length?"Waiting for files…":!$("#fTitle").value.trim()?"Add a course title":!m.entry?"Select an HTML entry point":"Ready to forge ⚒️";
+}
+function slugify(s){return String(s).toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,"")||"package";}
+updateStatus();
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark" style="--app-hue1:#16a085;--app-hue2:#2ecc71">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SCORM Vision X · RPBeduWorld2</title>
+<meta name="description" content="Open, inspect, validate and preview any SCORM package — fully in your browser.">
+<link rel="icon" href="../../shared/favicon.svg">
+<link rel="stylesheet" href="../../shared/rpw2.css">
+<style>
+  .dropzone { border:2px dashed var(--glass-brd); border-radius:var(--rpw-radius-lg); padding:44px 20px; text-align:center; transition:all .25s ease; cursor:pointer; background:var(--input-bg); }
+  .dropzone:hover,.dropzone.drag{border-color:var(--app-hue2);background:color-mix(in srgb,var(--app-hue2) 7%,transparent);box-shadow:var(--glow);}
+  .tree { font-family:var(--rpw-mono); font-size:12px; line-height:1.9; max-height:300px; overflow:auto; }
+  .tree div:hover{background:var(--hover);}
+  .val-row{display:flex;gap:9px;align-items:flex-start;padding:7px 0;border-bottom:1px solid var(--glass-brd);font-size:13px;}
+  .val-row:last-child{border:none;}
+  #previewFrame { width:100%; height:min(62vh,640px); border:none; border-radius:12px; background:#fff; }
+</style>
+</head>
+<body>
+<header class="rpw-topbar">
+  <a class="rpw-home" href="../../index.html"><b>⬡ RPW²</b></a>
+  <div class="rpw-app-title"></div>
+  <div class="rpw-topbar-actions"><button class="rpw-theme-toggle" aria-label="Toggle theme"></button></div>
+</header>
+<main class="rpw-container">
+
+  <section id="loadView">
+    <div class="rpw-hero rpw-rise"><h1>SCORM <span class="grad">Vision X</span></h1>
+      <p>Inspect and launch any SCORM 1.2 / 2004 package with a simulated LMS runtime — no LMS required.</p></div>
+    <div class="dropzone rpw-rise" id="dz" style="animation-delay:.06s;max-width:720px;margin:0 auto">
+      <div style="font-size:42px;margin-bottom:10px">👁️</div>
+      <b>Drop a SCORM .zip here</b>
+      <p class="muted small mt-1">or click to browse · parsed &amp; validated locally, never uploaded</p>
+      <input type="file" id="fileInput" accept=".zip" hidden>
+    </div>
+    <div class="row mt-3 center small muted">Create a package with <a href="../scorm-forge-pro/index.html">SCORM Forge Pro</a> →</div>
+  </section>
+
+  <section id="inspectView" class="hidden">
+    <div class="row wrap spread mb-3">
+      <div><h2 id="pkgTitle" style="font-size:20px"></h2><span class="small muted" id="pkgMeta"></span></div>
+      <div class="rpw-btn-row">
+        <span class="rpw-badge ok" id="verBadge"></span>
+        <button class="rpw-btn sm danger" id="btnEject">Eject package</button>
+      </div>
+    </div>
+
+    <div class="rpw-grid mb-3">
+      <section class="rpw-panel">
+        <div class="rpw-section-title">Package contents <small id="fileCountLbl"></small></div>
+        <div class="tree" id="fileTree"></div>
+      </section>
+      <section class="rpw-panel">
+        <div class="rpw-section-title">Validation report</div>
+        <div id="validation"></div>
+      </section>
+    </div>
+
+    <section class="rpw-panel">
+      <div class="row wrap spread mb-2">
+        <div class="rpw-section-title" style="margin:0">Runtime preview <small>sandboxed SCO with simulated LMS API</small></div>
+        <div class="rpw-btn-row">
+          <select class="rpw-select" id="scoSelect" style="max-width:260px"></select>
+          <button class="rpw-btn primary sm" id="btnRelaunch">↻ Relaunch</button>
+        </div>
+      </div>
+      <iframe id="previewFrame" title="SCO preview" sandbox="allow-scripts allow-same-origin allow-forms allow-popups"></iframe>
+      <div class="tiny faint mt-2">Runtime state captured from the simulated LMS API:</div>
+      <div class="row wrap tiny mono muted mt-1" id="runtimeState"></div>
+    </section>
+  </section>
+</main>
+<footer class="rpw-footer">SCORM Vision X · part of <b>RPBeduWorld2</b></footer>
+<script src="../../shared/vendor/jszip.min.js"></script>
+<script src="../../shared/rpw2.js"></script>
+<script>
+(function(){
+"use strict";
+const $=s=>document.querySelector(s);
+RPW2.initTopbar("SCORM Vision X","eye");
+
+let pkg=null;
+
+const dz=$("#dz");
+dz.onclick=()=>$("#fileInput").click();
+$("#fileInput").onchange=e=>{if(e.target.files[0])loadZip(e.target.files[0]);};
+["dragover","dragenter"].forEach(ev=>dz.addEventListener(ev,e=>{e.preventDefault();dz.classList.add("drag");}));
+["dragleave","drop"].forEach(ev=>dz.addEventListener(ev,e=>{e.preventDefault();dz.classList.remove("drag");}));
+dz.addEventListener("drop",e=>{const f=e.dataTransfer.files[0];if(f)loadZip(f);});
+
+async function loadZip(file){
+  if(!/\.zip$/i.test(file.name)){toast("Please provide a .zip file","err");return;}
+  toast("Unpacking "+file.name+"…","info");
+  try{
+    const zip=await JSZip.loadAsync(file);
+    const files={};let manifestXml=null;
+    for(const n of Object.keys(zip.files)){
+      const zf=zip.files[n];
+      if(zf.dir)continue;
+      files[n]=await zf.async("blob");
+      if(/imsmanifest\.xml$/i.test(n))manifestXml=await zf.async("text");
+    }
+    if(!manifestXml)throw new Error("imsmanifest.xml not found — not a SCORM package?");
+    pkg={name:file.name,files,manifestXml};
+    parseManifest();
+    paint();
+    toast("Loaded: "+Object.keys(files).length+" files","ok");
+    RPW2.sfx.ok();
+  }catch(e){toast("Load failed: "+e.message,"err");}
+}
+function xmlParse(xml){return new DOMParser().parseFromString(xml,"application/xml");}
+
+function parseManifest(){
+  const doc=xmlParse(pkg.manifestXml);
+  pkg.version=(pkg.manifestXml.match(/<schemaversion>([^<]+)/i)||[])[1]||"unknown";
+  pkg.scos=[];
+  const resources={};
+  doc.querySelectorAll("resource").forEach(r=>{
+    let st="";
+    ["adlcp:scormtype","adlcp:scormType","scormtype"].forEach(tn=>{
+      const els=r.getElementsByTagName(tn);
+      if(els.length)st=els[0].textContent;
+    });
+    resources[r.getAttribute("identifier")]={href:r.getAttribute("href")||"",sco:/sco/i.test(st)};
+  });
+  doc.querySelectorAll("item").forEach(it=>{
+    const ref=it.getAttribute("identifierref");
+    if(ref&&resources[ref]){
+      const t=it.getElementsByTagName("title");
+      pkg.scos.push({id:ref,title:t.length?t[0].textContent:"(untitled)",href:resources[ref].href});
+    }
+  });
+  if(!pkg.scos.length){
+    const first=Object.entries(resources).find(([k,r])=>r.href);
+    if(first)pkg.scos.push({id:first[0],title:"(default resource)",href:first[1].href});
+  }
+  pkg.entry=pkg.scos.length?pkg.scos[0].href:null;
+  // validation
+  const missing=[];
+  doc.querySelectorAll("resource").forEach(r=>{
+    r.querySelectorAll("file").forEach(f=>{
+      const href=f.getAttribute("href");
+      if(href&&!pkg.files[href])missing.push(href);
+    });
+  });
+  pkg.validation=[
+    {ok:true,label:"imsmanifest.xml found"},
+    {ok:!doc.querySelector("parsererror"),label:"Manifest is well-formed XML"},
+    {ok:/<schema>/i.test(pkg.manifestXml),label:"ADL SCORM schema declared"},
+    {ok:!!pkg.version&&pkg.version!=="unknown",label:"Schemaversion",detail:pkg.version},
+    {ok:doc.querySelectorAll("organization").length>0,label:"Organization present"},
+    {ok:pkg.scos.length>0,label:"Launchable item(s)",detail:pkg.scos.length+" found"},
+    {ok:pkg.entry?!!pkg.files[pkg.entry]:false,label:"Entry file exists",detail:pkg.entry||"—"},
+    {ok:missing.length===0,label:"All referenced files present",detail:missing.length?missing.length+" missing: "+missing.slice(0,3).join(", "):"complete"}
+  ];
+}
+
+function paint(){
+  $("#loadView").classList.add("hidden");
+  $("#inspectView").classList.remove("hidden");
+  $("#pkgTitle").textContent=pkg.name;
+  $("#pkgMeta").textContent=Object.keys(pkg.files).length+" files";
+  $("#verBadge").textContent=pkg.version;
+  $("#fileCountLbl").textContent="("+Object.keys(pkg.files).length+")";
+  $("#fileTree").innerHTML=Object.keys(pkg.files).sort().map(p=>"<div>"+esc(p)+"</div>").join("");
+  $("#validation").innerHTML=pkg.validation.map(v=>
+    '<div class="val-row"><span style="color:'+(v.ok?"var(--rpw-ok)":"var(--rpw-err)")+';flex:none">'+RPW2.icon(v.ok?"check":"x",15)+'</span>'+
+    '<span class="grow">'+esc(v.label)+(v.detail?' <span class="faint tiny">— '+esc(v.detail)+"</span>":"")+"</span></div>").join("");
+  $("#scoSelect").innerHTML=pkg.scos.map((s,i)=>'<option value="'+i+'">'+esc(s.title)+" — "+esc(s.href)+"</option>").join("");
+  relaunch();
+}
+function relaunch(){
+  if(!pkg||!pkg.entry)return;
+  const sco=pkg.scos[+$("#scoSelect").value||0]||pkg.scos[0];
+  const frame=$("#previewFrame");
+  buildSandbox(sco,frame);
+  paintRuntime({});
+}
+$("#btnRelaunch").onclick=relaunch;
+
+/* Build a sandboxed document: blob URL of entry with rewritten relative asset links → blob URLs */
+async function buildSandbox(sco,frame){
+  try{
+    const baseDir=sco.href.includes("/")?sco.href.slice(0,sco.href.lastIndexOf("/")+1):"";
+    const cache={};
+    async function toURL(path){
+      const clean=path.replace(/^\.\//,"").split(/[?#]/)[0];
+      const key=(baseDir+clean);
+      const norm=key.replace(/[^/]+\.\.\//g,"");
+      if(cache[norm])return cache[norm];
+      let blob=pkg.files[norm];
+      if(!blob){ // try basename search
+        const bn=norm.split("/").pop();
+        const hit=Object.keys(pkg.files).find(k=>k===bn||k.endsWith("/"+bn));
+        if(hit)blob=pkg.files[hit];
+      }
+      if(!blob)return path; // leave as-is
+      return cache[norm]=URL.createObjectURL(blob);
+    }
+    // fetch entry html
+    let html=await (await blobOf(sco.href)).text();
+    // rewrite src/href references
+    html=html.replace(/(src|href)\s*=\s*["']([^"']+)["']/gi, async function(){return arguments[0];});
+    // do the rewrite synchronously by pre-resolving common refs
+    const refs=[...html.matchAll(/(?:src|href)\s*=\s*["']([^"']+)["']/gi)].map(m=>m[1]);
+    const map={};
+    for(const r of refs){
+      if(/^(https?:|data:|blob:|#)/i.test(r))continue;
+      map[r]=await toURL(r);
+    }
+    Object.keys(map).forEach(k=>{
+      html=html.split('"'+k+'"').join('"'+map[k]+'"');
+    });
+    // inject simulated LMS API shim
+    const shim='<script>\n'+
+    '(function(){\n'+
+    '  var state={initialized:false,terminated:false,data:{}};\n'+
+    '  function report(call,args,val){try{parent.postMessage({rpwScormApi:call,args:[].slice.call(args),val:String(val)},"*");}catch(e){}}\n'+
+    '  var api12={LMSInitialize:function(){state.initialized=true;report("Initialize",arguments,"true");return "true";},\n'+
+    '    LMSFinish:function(){state.terminated=true;report("Finish",arguments,"true");return "true";},\n'+
+    '    LMSGetValue:function(k){var v=state.data[k]||"";report("GetValue",[k],v);return v;},\n'+
+    '    LMSSetValue:function(k,v){state.data[k]=v;report("Set",[k,v],"true");return "true";},\n'+
+    '    LMSCommit:function(){report("Commit",arguments,"true");return "true";},\n'+
+    '    LMSGetLastError:function(){return "0";},LMSGetErrorString:function(){return "No error";},LMSGetDiagnostic:function(){return "";}};\n'+
+    '  var api2004={Initialize:function(){state.initialized=true;report("Initialize",arguments,"true");return "true";},\n'+
+    '    Terminate:function(){state.terminated=true;report("Terminate",arguments,"true");return "true";},\n'+
+    '    GetValue:function(k){var v=state.data[k]||"";report("GetValue",[k],v);return v;},\n'+
+    '    SetValue:function(k,v){state.data[k]=v;report("Set",[k,v],"true");return "true";},\n'+
+    '    Commit:function(){report("Commit",arguments,"true");return "true";},\n'+
+    '    GetLastError:function(){return "0";},GetErrorString:function(){return "No error";},GetDiagnostic:function(){return "";}};\n'+
+    '  function find(win,name,depth){try{while(win&&depth<12){if(win[name])return win[name];win=win.parent;depth++;}}catch(e){}return null;}\n'+
+    '  window.API=find(window,"API",0)||(window.opener?find(window.opener,"API",0):null);\n'+
+    '  window.API_1484_11=find(window,"API_1484_11",0)||(window.opener?find(window.opener,"API_1484_11",0):null);\n'+
+    '  if(!window.API)window.API=api12;\n'+
+    '  if(!window.API_1484_11)window.API_1484_11=api2004;\n'+
+    '})();\n<\/scr'+'ipt>';
+    if(/<head[^>]*>/i.test(html))html=html.replace(/<head[^>]*>/i,function(m){return m+shim;});
+    else html=shim+html;
+    const url=URL.createObjectURL(new Blob([html],{type:"text/html"}));
+    frame.src=url;
+    window.__runtimeData={};
+  }catch(e){toast("Preview failed: "+e.message,"err");}
+}
+function blobOf(path){
+  let blob=pkg.files[path];
+  if(!blob){
+    const hit=Object.keys(pkg.files).find(k=>k===path||k.endsWith("/"+path));
+    if(hit)blob=pkg.files[hit];
+  }
+  if(!blob)throw new Error("entry file not found in package");
+  return blob;
+}
+/* capture API calls from iframe via postMessage */
+addEventListener("message",ev=>{
+  const d=ev.data;
+  if(d&&d.rpwScormApi){
+    window.__runtimeData=window.__runtimeData||{};
+    if(d.rpwScormApi==="Set")window.__runtimeData[d.args[0]]=d.args[1];
+    paintRuntime(window.__runtimeData);
+  }
+});
+function paintRuntime(data){
+  const keys=Object.keys(data);
+  $("#runtimeState").innerHTML=keys.length
+    ? keys.map(k=>'<span class="rpw-badge">'+esc(k)+" = "+esc(String(data[k]).slice(0,40))+"</span>").join("")
+    : '<span class="faint">no API activity yet — interact with the SCO</span>';
+}
+$("#btnEject").onclick=async()=>{
+  if(await RPW2.confirm({title:"Eject package?",message:"Close and unload the current SCORM package.",yesLabel:"Eject"})){
+    pkg=null;
+    $("#previewFrame").src="about:blank";
+    $("#inspectView").classList.add("hidden");
+    $("#loadView").classList.remove("hidden");
+  }
+};
+})();
+</script>
+</body>
+</html>

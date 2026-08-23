@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark" style="--app-hue1:#16a085;--app-hue2:#f1c40f">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Tutorial Studio · RPBeduWorld2</title>
+<meta name="description" content="Build interactive slide tutorials with checkpoint quizzes and matching-pair games; export standalone HTML.">
+<link rel="icon" href="../../shared/favicon.svg">
+<link rel="stylesheet" href="../../shared/rpw2.css">
+<style>
+  .slide-thumb { display:flex; gap:8px; overflow-x:auto; padding-bottom:6px; }
+  .sthumb { min-width:120px; padding:8px 10px; border-radius:10px; border:1.5px solid var(--glass-brd); background:var(--input-bg); cursor:pointer; font-size:12px; transition:all .15s ease; position:relative; }
+  .sthumb.active { border-color:var(--app-hue2); box-shadow:var(--glow); }
+  .sthumb .n { font-weight:800; color:var(--txt-3); font-size:10px; }
+  .pair-row { display:flex; gap:8px; margin-bottom:7px; align-items:center; }
+  .pair-row input { flex:1; }
+</style>
+</head>
+<body>
+<header class="rpw-topbar">
+  <a class="rpw-home" href="../../index.html"><b>⬡ RPW²</b></a>
+  <div class="rpw-app-title"></div>
+  <div class="rpw-topbar-actions">
+    <button class="rpw-btn sm" id="btnUndo">↶</button>
+    <button class="rpw-btn sm" id="btnRedo">↷</button>
+    <button class="rpw-btn sm primary" id="btnExport">Export tutorial</button>
+    <button class="rpw-theme-toggle" aria-label="Toggle theme"></button>
+  </div>
+</header>
+<main class="rpw-container">
+  <section class="row wrap mb-3">
+    <input class="rpw-input grow" id="tutTitle" placeholder="Tutorial title…" style="font-size:18px;font-weight:700">
+    <select class="rpw-select" id="themeSel" style="max-width:180px">
+      <option value="dark">Dark theme</option><option value="light">Light theme</option><option value="science">Science blue</option>
+    </select>
+    <span class="tiny faint" id="saveState"></span>
+  </section>
+
+  <!-- slides strip -->
+  <div class="row wrap spread mb-2">
+    <b class="small muted">SLIDES</b>
+    <button class="rpw-btn sm primary" id="btnAddSlide">＋ Slide</button>
+  </div>
+  <div class="slide-thumb rpw-panel mb-3" id="strip" style="padding:12px"></div>
+
+  <!-- editor -->
+  <section class="rpw-panel mb-3">
+    <div class="rpw-tabs"><button class="rpw-tab active" data-tab="content">Content</button><button class="rpw-tab" data-tab="quiz">Checkpoint quiz</button><button class="rpw-tab" data-tab="pairs">Matching game</button></div>
+
+    <div id="tab-content">
+      <div class="row wrap mb-2"><input class="rpw-input grow" id="sTitle" placeholder="Slide heading"></div>
+      <textarea class="rpw-textarea" id="sBody" style="min-height:170px;font-size:13.5px" placeholder="Slide text… (HTML allowed: &lt;p&gt;, &lt;b&gt;, &lt;ul&gt;&lt;li&gt;, &lt;img src=''&gt;)"></textarea>
+      <div class="row wrap mt-2 spread">
+        <label class="small row" style="gap:7px;cursor:pointer"><input type="checkbox" id="sQuizReq"> Require quiz before next slide</label>
+        <button class="rpw-btn sm danger" id="btnDelSlide">Delete slide</button>
+      </div>
+    </div>
+
+    <div id="tab-quiz" class="hidden">
+      <div id="quizList"></div>
+      <button class="rpw-btn mt-2" id="btnAddQ">＋ Question</button>
+      <p class="tiny faint mt-2">Multiple-choice questions shown as a checkpoint when the slide opens (if required) or on demand.</p>
+    </div>
+
+    <div id="tab-pairs" class="hidden">
+      <p class="small muted mb-2">Matching pairs game — learners match each term to its definition.</p>
+      <div id="pairsList"></div>
+      <button class="rpw-btn mt-2" id="btnAddPair">＋ Pair</button>
+    </div>
+  </section>
+
+  <div class="center"><button class="rpw-btn lg primary" id="btnPreview">▶ Preview full tutorial</button></div>
+  <div id="previewHost"></div>
+</main>
+<footer class="rpw-footer">Tutorial Studio · part of <b>RPBeduWorld2</b> · autosaved locally · exports standalone HTML</footer>
+<script src="../../shared/rpw2.js"></script>
+<script>
+(function(){
+"use strict";
+const $=s=>document.querySelector(s);
+RPW2.initTopbar("Tutorial Studio","edit");
+
+let tut=RPW2.store.get("tutorialstudio.doc",{title:"",theme:"dark",slides:[mkSlide()]});
+let cur=0,undoStack=[],redoStack=[],saveTimer=null;
+
+function mkSlide(){return{title:"New slide",body:"<p>Write your content here…</p>",quiz:[],pairs:[],quizRequired:false};}
+function snapshot(){undoStack.push(JSON.stringify(tut));if(undoStack.length>50)undoStack.shift();redoStack=[];}
+function undo(){if(!undoStack.length)return;redoStack.push(JSON.stringify(tut));tut=JSON.parse(undoStack.pop());persist();paintAll();}
+function redo(){if(!redoStack.length)return;undoStack.push(JSON.stringify(tut));tut=JSON.parse(redoStack.pop());persist();paintAll();}
+$("#btnUndo").onclick=undo; $("#btnRedo").onclick=redo;
+
+function persist(){
+  clearTimeout(saveTimer);
+  $("#saveState").textContent="saving…";
+  saveTimer=setTimeout(()=>{
+    RPW2.store.set("tutorialstudio.doc",tut);
+    $("#saveState").textContent="autosaved ✓";
+  },700);
+}
+
+/* ---------- paint ---------- */
+function paintAll(){
+  $("#tutTitle").value=tut.title;
+  $("#themeSel").value=tut.theme;
+  paintStrip();paintSlide();
+}
+function paintStrip(){
+  const st=$("#strip");st.innerHTML="";
+  tut.slides.forEach((s,i)=>{
+    const el=document.createElement("div");
+    el.className="sthumb"+(i===cur?" active":"");
+    el.innerHTML='<span class="n">'+(i+1)+"</span><br>"+esc(s.title||"Untitled");
+    el.onclick=()=>{cur=i;paintStrip();paintSlide();};
+    st.appendChild(el);
+  });
+}
+function esc(s){return RPW2.escapeHtml(s);}
+function S(){return tut.slides[cur];}
+
+function paintSlide(){
+  const s=S();
+  $("#sTitle").value=s.title;
+  $("#sBody").value=s.body;
+  $("#sQuizReq").checked=!!s.quizRequired;
+  // quiz editor
+  $("#quizList").innerHTML=s.quiz.length?s.quiz.map((q,i)=>
+   '<div class="rpw-card mb-2"><div class="row mb-1"><input class="rpw-input grow" value="'+esc(q.q)+'" data-q="'+i+'" placeholder="Question"><button class="rpw-btn icon-only" data-qx="'+i+'" aria-label="Remove question">'+RPW2.icon("trash",14)+'</button></div>'+
+   '<div class="row wrap">'+q.options.map((o,oi)=>'<label class="chip-opt row small" style="gap:5px;margin:3px 8px 3px 0;cursor:pointer"><input type="radio" name="ans'+i+'" '+(oi===q.answer?"checked":"")+' data-a="'+i+':'+oi+'">'+esc(o)+"</label>").join("")+"</div>"+
+   '<input class="rpw-input small mt-1" placeholder="Options comma separated…" value="'+esc(q.options.join(", "))+'" data-o="'+i+'"></div>').join("")
+   :'<div class="rpw-empty" style="padding:20px"><p>No questions yet.</p></div>';
+  // pairs editor
+  $("#pairsList").innerHTML=s.pairs.length?s.pairs.map((p,i)=>
+   '<div class="pair-row"><input class="rpw-input" value="'+esc(p[0])+'" data-pt="'+i+'" placeholder="Term">'+
+   '<input class="rpw-input" value="'+esc(p[1])+'" data-pd="'+i+'" placeholder="Definition/match">'+
+   '<button class="rpw-btn icon-only" data-px="'+i+'" aria-label="Remove pair" style="flex:none">'+RPW2.icon("trash",13)+"</button></div>").join("")
+   :'<div class="rpw-empty" style="padding:20px"><p>Add term–match pairs below.</p></div>';
+}
+
+/* ---------- bindings ---------- */
+$("#tutTitle").addEventListener("input",()=>{tut.title=$("#tutTitle").value;persist();});
+$("#themeSel").addEventListener("change",()=>{tut.theme=$("#themeSel").value;persist();});
+$("#sTitle").addEventListener("input",()=>{snapshotLazy();S().title=$("#sTitle").value;persist();paintStripTitleOnly();});
+$("#sBody").addEventListener("input",()=>{snapshotLazy();S().body=$("#sBody").value;persist();});
+$("#sQuizReq").addEventListener("change",()=>{S().quizRequired=$("#sQuizReq").checked;persist();});
+let lazyTimer=null;
+function snapshotLazy(){clearTimeout(lazyTimer);lazyTimer=setTimeout(snapshot,600);}
+function paintStripTitleOnly(){const t=$("#strip").children[cur];if(t)t.innerHTML='<span class="n">'+(cur+1)+"</span><br>"+esc(S().title||"Untitled");}
+
+document.querySelectorAll(".rpw-tab").forEach(t=>t.onclick=()=>{
+  document.querySelectorAll(".rpw-tab").forEach(x=>x.classList.toggle("active",x===t));
+  ["content","quiz","pairs"].forEach(n=>$("#tab-"+n).classList.toggle("hidden",t.dataset.tab!==n));
+});
+
+$("#btnAddSlide").onclick=()=>{snapshot();tut.slides.splice(cur+1,0,mkSlide());cur++;persist();paintAll();};
+$("#btnDelSlide").onclick=async()=>{
+  if(tut.slides.length<=1){toast("A tutorial needs at least one slide","info");return;}
+  if(await RPW2.confirm({title:"Delete slide?",message:'"'+S().title+'" will be removed.',danger:true,yesLabel:"Delete"})){
+    snapshot();tut.slides.splice(cur,1);cur=Math.max(0,cur-1);persist();paintAll();
+  }
+};
+$("#btnAddQ").onclick=()=>{
+  snapshot();S().quiz.push({q:"",options:["Option A","Option B","Option C","Option D"],answer:0});persist();paintSlide();
+};
+$("#quizList").addEventListener("input",e=>{
+  const q=e.target.dataset.q,o=e.target.dataset.o,a=e.target.dataset.a;
+  snapshotLazy();
+  if(q!==undefined&&e.target.tagName==="INPUT"&&e.target.classList.contains("rpw-input")){ /* question field handled by data-q */
+    const qi=+q.split(":")[0];
+    if(e.target.placeholder==="Question"){S().quiz[qi].q=e.target.value;}
+  } else if(o!==undefined){
+    S().quiz[+o].options=e.target.value.split(",").map(x=>x.trim()).filter(Boolean);
+  }
+  persist();
+});
+$("#quizList").addEventListener("change",e=>{
+  const a=e.target.dataset.a,qx=e.target.closest("[data-qx]");
+  if(a){snapshot();const[i,oi]=a.split(":").map(Number);S().quiz[i].answer=oi;persist();}
+});
+$("#quizList").addEventListener("click",e=>{
+  const b=e.target.closest("[data-qx]");
+  if(b){snapshot();S().quiz.splice(+b.dataset.qx,1);persist();paintSlide();}
+});
+$("#quizList").addEventListener("input",e=>{
+  const qq=e.target.getAttribute("data-q");
+  if(qq!==undefined&&e.target.placeholder==="Question"){S().quiz[+qq].q=e.target.value;persist();}
+});
+$("#btnAddPair").onclick=()=>{snapshot();S().pairs.push(["",""]);persist();paintSlide();};
+$("#pairsList").addEventListener("input",e=>{
+  const pt=e.target.dataset.pt,pd=e.target.dataset.pd;
+  snapshotLazy();
+  if(pt!==undefined)S().pairs[+pt][0]=e.target.value;
+  if(pd!==undefined)S().pairs[+pd][1]=e.target.value;
+  persist();
+});
+$("#pairsList").addEventListener("click",e=>{
+  const b=e.target.closest("[data-px]");
+  if(b){snapshot();S().pairs.splice(+b.dataset.px,1);persist();paintSlide();}
+});
+
+/* ---------- preview & export ---------- */
+function buildStandalone(forExport){
+  const themes={
+    dark:{bg:"#0d1220",bg2:"#131a2e",card:"rgba(255,255,255,.05)",bd:"rgba(255,255,255,.1)",tx:"#eaf0ff",mut:"#93a1c8",ac:"#5b8cff",ac2:"#38e8ff"},
+    light:{bg:"#f6f8fc",bg2:"#ffffff",card:"#eef2f9",bd:"#dde4ee",tx:"#182238",mut:"#5b6879",ac:"#0967d2",ac2:"#00b894"},
+    science:{bg:"#071a2b",bg2:"#0b2440",card:"rgba(56,232,255,.06)",bd:"rgba(56,232,255,.15)",tx:"#e6f7ff",mut:"#7fa8bf",ac:"#38e8ff",ac2:"#7cffcb"}
+  };
+  const t=themes[tut.theme]||themes.dark;
+  let body="";
+  tut.slides.forEach((s,i)=>{
+    body+='<section class="slide'+(i===0?" active":"")+'" data-i="'+i+'">';
+    body+="<h2>"+esc(s.title)+"</h2>"+(s.body||"");
+    if(s.quiz&&s.quiz.length){
+      body+='<div class="quizbox"><b>Checkpoint</b>';
+      s.quiz.forEach((q,qi)=>{
+        body+='<p class="qp">'+esc(q.q)+"</p><div class='opts'>";
+        q.options.forEach((o,oi)=>body+='<button class="opt" data-correct="'+(oi===q.answer?1:0)+'" data-q="'+qi+'">'+esc(o)+"</button>");
+        body+="</div>";
+      });
+      body+='<div class="qres tiny"></div></div>';
+    }
+    if(s.pairs&&s.pairs.length>=3){
+      body+='<div class="pairsbox"><b>Match the pairs</b><div class="pterms">'+shuffleArr(s.pairs.map((p,i)=>'<button class="pterm" data-id="'+i+'">'+esc(p[0])+"</button>")).join("")+'</div><div class="pdefs">'+shuffleArr(s.pairs.map((p,i)=>'<button class="pdef" data-id="'+i+'">'+esc(p[1])+"</button>")).join("")+"</div><div class=\"pres tiny\"></div></div>";
+    }
+    body+="</section>";
+  });
+  const nav='<div class="nav"><button id="prevBtn">← Prev</button><span id="posLbl"></span><button id="nextBtn">Next →</button></div>';
+  return "<!DOCTYPE html>\n<html lang=\"en\"><head><meta charset=\"UTF-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>"+esc(tut.title||"Interactive Tutorial")+"</title>\n<style>\n"+
+  "*{box-sizing:border-box;margin:0;padding:0}\n"+
+  "body{font-family:-apple-system,'Segoe UI',Roboto,sans-serif;line-height:1.75;color:"+t.tx+";background:linear-gradient(160deg,"+t.bg+","+t.bg2+");min-height:100vh;display:flex;flex-direction:column;align-items:center;padding:34px 18px 90px}\n"+
+  "h1{font-size:clamp(26px,5vw,40px);margin-bottom:20px;background:linear-gradient(95deg,"+t.ac+","+t.ac2+");-webkit-background-clip:text;background-clip:text;color:transparent}\n"+
+  ".stage{width:100%;max-width:860px;background:"+t.card+";border:1px solid "+t.bd+";border-radius:22px;padding:clamp(20px,4vw,42px);position:relative}\n"+
+  ".slide{display:none}.slide.active{display:block;animation:fadein .35s ease}\n@keyframes fadein{from{opacity:0;transform:translateY(10px)}}\n"+
+  "h2{margin:.2em 0 .6em;font-size:clamp(21px,3vw,28px)}p{margin:.55em 0}ul,ol{margin:.5em 0 .5em 1.4em}img{max-width:100%;border-radius:14px}strong,b{color:"+t.ac2+"}\n"+
+  ".quizbox,.pairsbox{margin-top:26px;padding:18px;border:1px solid "+t.bd+";border-radius:16px;background:rgba(0,0,0,.12)}\n"+
+  ".quizbox>b,.pairsbox>b{display:block;margin-bottom:10px;text-transform:uppercase;letter-spacing:.08em;font-size:11px;color:"+t.mut+"}\n"+
+  ".opts{display:flex;flex-wrap:wrap;gap:8px}.opt,.pterm,.pdef{padding:9px 14px;border-radius:10px;border:1px solid "+t.bd+";background:transparent;color:"+t.tx+";cursor:pointer;font-size:13.5px;transition:all .15s}\n"+
+  ".opt:hover,.pterm:hover,.pdef:hover{border-color:"+t.ac+"}\n.opt.right{border-color:#2ecc71;background:rgba(46,204,113,.15)}\n.opt.wrong{border-color:#ff4d6d;background:rgba(255,77,109,.12)}\n"+
+  ".pterms,.pdefs{display:flex;flex-wrap:wrap;gap:7px;margin-bottom:9px}.pterm.sel{border-color:"+t.ac2+";background:rgba(56,232,255,.12)}\n"+
+  ".pdef.done,.pterm.done{opacity:.35;pointer-events:none}\n.nav{display:flex;justify-content:space-between;align-items:center;width:100%;max-width:860px;margin-top:18px}\n"+
+  ".nav button{padding:11px 22px;border-radius:12px;border:none;background:linear-gradient(120deg,"+t.ac+","+t.ac2+");color:#fff;font-weight:700;cursor:pointer;font-size:14.5px}\n.nav button:disabled{opacity:.35;cursor:default}\n#posLbl{font-size:13px;color:"+t.mut+"}\n"+
+  ".qp{font-size:14.5px;margin:12px 0 6px}.qres,.pres{margin-top:9px;color:"+t.ac2+"}\n.tiny{font-size:12.5px}\n"+
+  "</style></head><body>\n<h1>"+esc(tut.title||"Interactive Tutorial")+"</h1>\n<div class=\"stage\">"+body+"</div>\n"+nav+"\n"+
+  "<script>\n(function(){\n"+
+  " var slides=[].slice.call(document.querySelectorAll('.slide')),i=0;\n"+
+  " function paint(){slides.forEach(function(s,k){s.classList.toggle('active',k===i)});document.getElementById('posLbl').textContent=(i+1)+' / '+slides.length;document.getElementById('prevBtn').disabled=i===0;document.getElementById('nextBtn').disabled=i===slides.length-1;}\n"+
+  " document.getElementById('prevBtn').onclick=function(){if(i>0){i--;paint();}};\n"+
+  " document.getElementById('nextBtn').onclick=function(){var s=slides[i];var req=s.hasAttribute('data-req');i=Math.min(slides.length-1,i+1);paint();};\n"+
+  " [].slice.call(document.querySelectorAll('.slide')).forEach(function(sl,idx){if("+JSON.stringify(tut.slides.map(s=>!!s.quizRequired))+"[idx])sl.setAttribute('data-req','1');});\n"+
+  " var quizDone={};\n"+
+  " [].slice.call(document.querySelectorAll('.opt')).forEach(function(b){b.onclick=function(){\n"+
+  "  var q=b.getAttribute('data-q');\n"+
+  "  [].slice.call(document.querySelectorAll('.opt[data-q=\"'+q+'\"]')).forEach(function(x){x.disabled=true;if(x.getAttribute('data-correct')==='1')x.classList.add('right');});\n"+
+  "  if(b.getAttribute('data-correct')!=='1')b.classList.add('wrong');else quizDone[q]=true;\n"+
+  "  var sl=b.closest('.slide'),allRight=true;\n"+
+  "  [].slice.call(sl.querySelectorAll('.quizbox b ~ p')).forEach(function(){ });\n"+
+  "  var nq=sl.querySelectorAll('.opts').length,nr=Object.keys(quizDone).filter(function(k){return k.indexOf('')===0}).length;\n"+
+  "  sl.querySelector('.qres').textContent='Answered — continue when ready.';\n"+
+  " };});\n"+
+  " var selTerm=null;\n"+
+  " [].slice.call(document.querySelectorAll('.pterm')).forEach(function(t){t.onclick=function(){[].slice.call(document.querySelectorAll('.pterm')).forEach(function(x){x.classList.remove('sel');});selTerm=t;t.classList.add('sel');};});\n"+
+  " [].slice.call(document.querySelectorAll('.pdef')).forEach(function(d){d.onclick=function(){if(!selTerm)return;\n"+
+  "  if(selTerm.getAttribute('data-id')===d.getAttribute('data-id')){selTerm.classList.add('done');d.classList.add('done');selTerm=null;\n"+
+  "   var box=d.closest('.pairsbox');if(!box.querySelector('.pterm:not(.done)'))box.querySelector('.pres').textContent='🎉 All matched!';}\n"+
+  " };});\n"+
+  " paint();\n})();\n<\/scr"+"ipt>\n</body></html>";
+}
+function shuffleArr(a){for(let i=a.length-1;i>0;i--){const j=(Math.random()*(i+1))|0;[a[i],a[j]]=[a[j],a[i]];}return a;}
+
+$("#btnPreview").onclick=()=>{
+  const m=RPW2.modal("Preview — "+esc(tut.title||"Tutorial"),'<iframe style="width:100%;height:min(70vh,720px);border:none;border-radius:12px" title="Tutorial preview"></iframe>');
+  m.el.querySelector("iframe").srcdoc=buildStandalone(false);
+};
+$("#btnExport").onclick=()=>{
+  if(!tut.title.trim()){toast("Give the tutorial a title first","err");return;}
+  RPW2.download(slugify(tut.title)+".tutorial.html",buildStandalone(true),"text/html");
+  toast("Standalone tutorial exported 🎉","ok");RPW2.confetti();RPW2.sfx.win();
+};
+function slugify(s){return String(s).toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,"")||"tutorial";}
+
+paintAll();
+})();
+</script>
+</body>
+</html>

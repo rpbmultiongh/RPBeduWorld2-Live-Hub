@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark" style="--app-hue1:#6c5ce7;--app-hue2:#00d2ff">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LessonForge AI · RPBeduWorld2</title>
+<meta name="description" content="Forge complete lessons and quizzes from raw notes — optional Gemini AI (your key, your browser) plus a smart offline generator.">
+<link rel="icon" href="../../shared/favicon.svg">
+<link rel="stylesheet" href="../../shared/rpw2.css">
+<style>
+  .mode-card{border:1px solid var(--glass-brd);border-radius:14px;padding:16px;cursor:pointer;background:var(--input-bg);transition:all .18s ease;}
+  .mode-card.active{border-color:var(--app-hue2);box-shadow:var(--glow);background:linear-gradient(140deg,color-mix(in srgb,var(--app-hue1) 12%,transparent),transparent);}
+  .lesson-out h1,.lesson-out h2,.lesson-out h3{margin:.8em 0 .35em;}
+  .lesson-out p{margin:.55em 0;line-height:1.8;}
+  .quiz-item{border:1px solid var(--glass-brd);border-radius:12px;padding:14px;margin-bottom:11px;}
+  .spinner{display:inline-block;width:16px;height:16px;border:2px solid var(--glass-brd);border-top-color:var(--app-hue2);border-radius:50%;animation:spin .8s linear infinite;}
+  @keyframes spin{to{transform:rotate(360deg)}}
+</style>
+</head>
+<body>
+<header class="rpw-topbar">
+  <a class="rpw-home" href="../../index.html"><b>⬡ RPW²</b></a>
+  <div class="rpw-app-title"></div>
+  <div class="rpw-topbar-actions">
+    <button class="rpw-btn sm" id="btnSettings">⚙ API key</button>
+    <button class="rpw-theme-toggle" aria-label="Toggle theme"></button>
+  </div>
+</header>
+<main class="rpw-container">
+  <div class="rpw-hero rpw-rise">
+    <h1>Lesson<span class="grad">Forge AI</span></h1>
+    <p>Paste raw study material → forge a structured lesson with objectives, sections, key terms & quiz.</p>
+  </div>
+
+  <!-- mode select -->
+  <div class="rpw-grid mb-3" style="grid-template-columns:repeat(auto-fit,minmax(240px,1fr))">
+    <div class="mode-card active rpw-rise" data-mode="offline">
+      <b>⚡ Offline Forge</b><p class="small muted mt-1">Instant, private, works anywhere. Smart template engine structures your notes.</p>
+    </div>
+    <div class="mode-card rpw-rise" style="animation-delay:.05s" data-mode="gemini">
+      <b>✨ Gemini Forge</b><p class="small muted mt-1">Richer output via Google AI. Bring-your-own-key — stored only in this browser.</p>
+    </div>
+  </div>
+
+  <!-- input -->
+  <section class="rpw-panel mb-3">
+    <div class="rpw-grid">
+      <div><div class="rpw-field"><label class="rpw-label">Lesson title *</label><input class="rpw-input" id="inTitle" placeholder="e.g. Photosynthesis — Light Reactions"></div>
+      <div class="row wrap" style="gap:12px">
+        <div style="flex:1;min-width:150px"><label class="rpw-label">Subject</label><input class="rpw-input" id="inSubject" placeholder="Biology"></div>
+        <div style="flex:1;min-width:150px"><label class="rpw-label">Audience level</label>
+        <select class="rpw-select" id="inLevel"><option>High school</option><option>Intro college</option><option selected>College</option><option>Advanced</option></select></div>
+        <div style="flex:1;min-width:130px"><label class="rpw-label"># Quiz questions</label>
+        <select class="rpw-select" id="inQuizN"><option>3</option><option selected>4</option><option>5</option><option>6</option></select></div>
+      </div></div>
+    </div>
+    <div class="rpw-field mt-2"><label class="rpw-label">Raw material * (paste lecture notes / text)</label>
+      <textarea class="rpw-textarea" id="inText" style="min-height:200px;font-size:13.5px" placeholder="Paste your raw study material here…"></textarea>
+      <div class="tiny faint mt-1" id="txtStats"></div></div>
+    <button class="rpw-btn primary lg" id="btnForge">⚒️ Forge lesson</button>
+  </section>
+
+  <!-- output -->
+  <section id="outWrap" class="hidden">
+    <div class="row wrap spread mb-2">
+      <h2 style="font-size:20px">Forged output <span class="badge rpw-badge" id="outMode"></span></h2>
+      <div class="rpw-btn-row no-print">
+        <button class="rpw-btn sm" id="btnCopyMd">Copy markdown</button>
+        <button class="rpw-btn sm" id="btnDlHtml">Export HTML</button>
+        <button class="rpw-btn sm" id="btnDlJson">Export course JSON</button>
+      </div>
+    </div>
+    <article class="rpw-panel lesson-out" id="outBox"></article>
+  </section>
+</main>
+<footer class="rpw-footer">LessonForge AI · part of <b>RPBeduWorld2</b> · keys stay in your browser, never on any server</footer>
+<script src="../../shared/rpw2.js"></script>
+<script>
+(function(){
+"use strict";
+const $=s=>document.querySelector(s);
+RPW2.initTopbar("LessonForge AI","zap");
+
+let mode="offline", lastResult=null;
+
+/* ---------- mode ---------- */
+document.querySelectorAll(".mode-card").forEach(c=>c.onclick=()=>{
+  mode=c.dataset.mode;
+  document.querySelectorAll(".mode-card").forEach(x=>x.classList.toggle("active",x===c));
+});
+
+/* ---------- api key modal ---------- */
+$("#btnSettings").onclick=()=>{
+  const cur=RPW2.store.get("lessonforge.key","");
+  const m=RPW2.modal("Gemini API key (BYOK)",
+   '<p class="small muted mb-2">Create a free key at <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a>. It is stored only in this browser\'s localStorage and sent directly to Google from your device.</p>'+
+   '<input class="rpw-input mono" id="keyIn" type="password" value="'+RPW2.escapeHtml(cur)+'" placeholder="AIza…">'+
+   '<div class="row spread mt-3"><button class="rpw-btn ghost" data-x>Close</button><button class="rpw-btn primary" id="keySave">Save</button></div>');
+  m.el.querySelector("#keySave").onclick=()=>{
+    RPW2.store.set("lessonforge.key",m.el.querySelector("#keyIn").value.trim());
+    toast("Key saved locally","ok");m.close();
+  };
+};
+
+/* ---------- input stats ---------- */
+$("#inText").addEventListener("input",()=>{
+  const v=$("#inText").value;
+  $("#txtStats").textContent=v.trim()?(v.trim().split(/\s+/).length+" words · "+v.length+" chars"):"";
+});
+
+/* ---------- forge ---------- */
+$("#btnForge").onclick=async()=>{
+  const title=$("#inTitle").value.trim(), text=$("#inText").value.trim();
+  if(!title){toast("Give the lesson a title","err");return;}
+  if(text.split(/\s+/).length<25){toast("Paste more material (≥25 words)","err");return;}
+  const btn=$("#btnForge");btn.disabled=true;
+  btn.innerHTML='<span class="spinner"></span> Forging…';
+  try{
+    if(mode==="gemini"){
+      const key=RPW2.store.get("lessonforge.key","");
+      if(!key){toast("Add your Gemini API key first (⚙ top right) — falling back to Offline","err");lastResult=forgeOffline(title,text);}
+      else{
+        try{ lastResult=await forgeGemini(key,title,text); }
+        catch(e){ toast("Gemini failed ("+e.message+") — using offline engine","err"); lastResult=forgeOffline(title,text); }
+      }
+    } else {
+      await new Promise(r=>setTimeout(r,450)); // satisfying forge moment
+      lastResult=forgeOffline(title,text);
+    }
+    render(lastResult);
+    RPW2.confetti();RPW2.sfx.win();
+  } finally{
+    btn.disabled=false;btn.innerHTML="⚒️ Forge lesson";
+  }
+};
+
+/* ---------- OFFLINE ENGINE ---------- */
+function splitSentences(t){
+  return t.replace(/\s+/g," ").match(/[^.!?]+[.!?]+|[^.!?]+$/g).map(s=>s.trim()).filter(s=>s.length>8);
+}
+function keywords(t,n){
+  const stop=new Set("the a an of and or to in is are was were for with on as by that this it its be been from at which can these those their there has have had not but also into such other than then when while more most some all one two".split(" "));
+  const freq={};
+  t.toLowerCase().replace(/[^a-z\s-]/g," ").split(/\s+/).forEach(w=>{
+    if(w.length<4||stop.has(w))return;
+    freq[w]=(freq[w]||0)+1;
+  });
+  return Object.entries(freq).sort((a,b)=>b[1]-a[1]).slice(0,n||10).map(e=>e[0]);
+}
+function forgeOffline(title,text){
+  const sents=splitSentences(text);
+  const paras=text.split(/\n\s*\n/).map(p=>p.trim()).filter(Boolean);
+  const kws=keywords(text,12);
+  // build sections: chunk sentences into ~4 groups
+  const chunks=[];
+  for(let i=0;i<sents.length;i+=Math.ceil(sents.length/4)){
+    const g=sents.slice(i,i+Math.ceil(sents.length/4));
+    if(g.length)chunks.push(g);
+  }
+  const sectionNames=["Overview","Core Concepts","Mechanisms & Details","Implications & Context"];
+  const sections=chunks.map((g,i)=>({
+    title:(sectionNames[i]||"Section "+(i+1)),
+    html:"<p>"+g.map(s=>RPW2.escapeHtml(s)).join(" ")+"</p>"
+  }));
+  // objectives from first sentence of each paragraph
+  const objectives=paras.slice(0,4).map(p=>"Explain "+keywords(p,2).join(" and ")+" in the context of "+title.toLowerCase());
+  // key terms
+  const terms=kws.slice(0,6).map(k=>{
+    const def=sents.find(s=>s.toLowerCase().includes(k))||("");
+    return {term:k.charAt(0).toUpperCase()+k.slice(1),def:def||"—"};
+  });
+  // quiz: cloze questions from fact-rich sentences containing keywords
+  const quiz=[];
+  kws.forEach(k=>{
+    if(quiz.length>=+$("#inQuizN").value)return;
+    const s=sents.find(x=>x.toLowerCase().includes(k)&&x.split(/\s+/).length>=9);
+    if(!s)return;
+    const re=new RegExp(k.replace(/[-]/g,"\\-"),"i");
+    const blank=s.replace(re,"______");
+    const distractors=keywords(text,20).filter(w=>w!==k).slice(0,8);
+    if(distractors.length<3)return;
+    const opts=shuffle([k,...distractors.slice(0,3)]);
+    quiz.push({q:"Complete: "+blank,options:opts.map(cap),answerIndex:opts.indexOf(k)});
+  });
+  function cap(s){return s.charAt(0).toUpperCase()+s.slice(1);}
+  function shuffle(a){for(let i=a.length-1;i>0;i--){const j=(Math.random()*(i+1))|0;[a[i],a[j]]=[a[j],a[i]];}return a;}
+  return {schema:"rpw2.course.v1",title,subject:$("#inSubject").value,author:"",created:new Date().toISOString(),
+    modules:[{id:RPW2.uid(),title,lessons:[{id:RPW2.uid(),title,
+      content:"<h3>Learning objectives</h3><ul>"+objectives.map(o=>"<li>"+RPW2.escapeHtml(o)+"</li>").join("")+"</ul>"+
+        "<h3>"+sections[0].title+"</h3>"+sections[0].html+
+        "<h3>Key terms</h3>"+terms.map(t=>"<p><strong>"+RPW2.escapeHtml(t.term)+"</strong> — "+RPW2.escapeHtml(t.def)+"</p>").join("")+
+        sections.slice(1).map(s=>"<h3>"+s.title+"</h3>"+s.html).join("")
+        ,quiz}]}]};
+}
+
+/* ---------- GEMINI ENGINE ---------- */
+async function forgeGemini(key,title,text){
+  const nQ=+$("#inQuizN").value, level=$("#inLevel").value, subject=$("#inSubject").value;
+  const prompt=
+'You are an expert instructional designer. Create ONE complete lesson.\n'+
+'Title: "'+title+'"\n'+(subject?'Subject: '+subject+'\n':'')+'Audience: '+level+'\n\n'+
+'Source material:\n"""\n'+text.slice(0,12000)+'\n"""\n\n'+
+'Return ONLY valid minified JSON matching exactly this shape:\n'+
+'{"summary":"one-sentence overview","objectives":["..."],"sections":[{"heading":"...","html":"<p>…rich html paragraphs…</p>"}],'+
+'"keyTerms":[{"term":"...","definition":"..."}],'+
+'"quiz":[{"question":"...","options":["A","B","C","D"],"answerIndex":0}]}  // '+nQ+' questions\n'+
+'Rules: 3-5 sections. html may use <p>,<strong>,<em>,<ul>,<li>,<code>. No markdown fences.';
+  const res=await fetch("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key="+encodeURIComponent(key),{
+    method:"POST",headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({contents:[{parts:[{text:prompt}]}],generationConfig:{temperature:.7,responseMimeType:"application/json"}})
+  });
+  if(!res.ok){const e=await res.json().catch(()=>({}));throw new Error(res.status+" "+((e.error&&e.error.message)||res.statusText));}
+  const j=await res.json();
+  let txt=j.candidates[0].content.parts.map(p=>p.text).join("");
+  txt=txt.replace(/^```json?/,"").replace(/```$/,"").trim();
+  const d=JSON.parse(txt);
+  return {schema:"rpw2.course.v1",title,subject,author:"",created:new Date().toISOString(),
+    modules:[{id:RPW2.uid(),title,lessons:[{id:RPW2.uid(),title,
+      content:"<p><em>"+RPW2.escapeHtml(d.summary||"")+"</em></p><h3>Learning objectives</h3><ul>"+(d.objectives||[]).map(o=>"<li>"+RPW2.escapeHtml(o)+"</li>").join("")+"</ul>"+
+       (d.sections||[]).map(s=>"<h3>"+RPW2.escapeHtml(s.heading)+"</h3>"+s.html).join("")+
+       ((d.keyTerms||[]).length?"<h3>Key terms</h3>"+d.keyTerms.map(t=>"<p><strong>"+RPW2.escapeHtml(t.term)+"</strong> — "+RPW2.escapeHtml(t.definition)+"</p>").join(""):""),
+      quiz:(d.quiz||[]).map(q=>({q:q.question,options:q.options,answerIndex:q.answerIndex}))}]}]};
+}
+
+/* ---------- render ---------- */
+function render(course){
+  $("#outWrap").classList.remove("hidden");
+  $("#outMode").textContent=course.__via==="gemini"?"✨ Gemini":"⚡ Offline";
+  const l=course.modules[0].lessons[0];
+  let html="<h2>"+esc(l.title)+"</h2>"+l.content;
+  if(l.quiz&&l.quiz.length){
+    html+='<hr><h3>Knowledge check ('+l.quiz.length+' questions)</h3>';
+    l.quiz.forEach((q,i)=>{
+      html+='<div class="quiz-item"><b>'+(i+1)+'. '+esc(q.q)+"</b>";
+      q.options.forEach((o,oi)=>{html+='<label class="row small mt-1" style="gap:8px;cursor:pointer"><input type="radio" name="qz'+i+'" value="'+oi+'">'+esc(o)+"</label>";});
+      html+='<div class="tiny mt-1 hidden" data-exp="'+i+'" style="color:var(--rpw-ok)">✔ Correct: '+esc(q.options[q.answerIndex])+"</div></div>";
+    });
+    html+='<button class="rpw-btn primary mt-2 no-print" id="btnCheckQuiz">Check answers</button>';
+  }
+  $("#outBox").innerHTML=html;
+  if(l.quiz&&l.quiz.length){
+    $("#btnCheckQuiz").onclick=()=>{
+      let sc=0;
+      l.quiz.forEach((q,i)=>{
+        const sel=document.querySelector('input[name="qz'+i+'"]:checked');
+        const exp=$("#outBox").querySelector('[data-exp="'+i+'"]');
+        if(sel&&+sel.value===q.answerIndex){sc++;if(exp)exp.classList.remove("hidden");}
+        else if(exp){exp.classList.remove("hidden");exp.style.color="var(--txt-3)";exp.textContent="Correct answer: "+q.options[q.answerIndex];}
+      });
+      toast(sc+"/"+l.quiz.length+" correct",sc===l.quiz.length?"ok":"info");
+      if(sc===l.quiz.length)RPW2.confetti();
+    };
+  }
+  $("#outWrap").scrollIntoView({behavior:"smooth"});
+  lastResult=course;
+}
+function esc(s){return RPW2.escapeHtml(s);}
+
+/* exports */
+$("#btnDlJson").onclick=()=>{if(lastResult)RPW2.download(slugify($("#inTitle").value)+".course.json",JSON.stringify(lastResult,null,2),"application/json"),toast("Course JSON exported","ok");};
+$("#btnDlHtml").onclick=()=>{
+  if(!lastResult)return;
+  const l=lastResult.modules[0].lessons[0];
+  const doc="<!DOCTYPE html>\n<html lang=\"en\">\n<head><meta charset=\"UTF-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>"+esc(l.title)+"</title>\n"+
+  "<style>*{box-sizing:border-box;margin:0;padding:0}body{font-family:-apple-system,'Segoe UI',Roboto,sans-serif;line-height:1.75;color:#eaf0ff;background:linear-gradient(160deg,#0b1026,#101736);min-height:100vh}.wrap{max-width:860px;margin:0 auto;padding:50px 26px}h1,h2,h3{background:linear-gradient(95deg,#5b8cff,#38e8ff);-webkit-background-clip:text;background-clip:text;color:transparent;margin:1em 0 .4em}p{margin:.6em 0}ul{margin-left:1.4em}.quiz-item{background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);border-radius:12px;padding:14px;margin:10px 0}</style></head>\n<body><div class='wrap'>"+l.content+"</div></body></html>";
+  RPW2.download(slugify($("#inTitle").value)+".html",doc,"text/html");
+  toast("Standalone HTML exported","ok");
+};
+$("#btnCopyMd").onclick=async()=>{
+  if(!lastResult)return;
+  const l=lastResult.modules[0].lessons[0];
+  const md="# "+l.title+"\n\n"+stripTags(l.content)+"\n";
+  try{await navigator.clipboard.writeText(md);toast("Markdown copied to clipboard","ok");}catch(e){toast("Clipboard unavailable","err");}
+};
+function stripTags(h){
+  const d=document.createElement("div");d.innerHTML=h;
+  d.querySelectorAll("h3").forEach(h=>h.textContent="\n## "+h.textContent+"\n");
+  d.querySelectorAll("li").forEach(li=>li.textContent="- "+li.textContent);
+  return d.textContent.replace(/\n{3,}/g,"\n\n").trim();
+}
+function slugify(s){return String(s).toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,"")||"lesson";}
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark" style="--app-hue1:#2980b9;--app-hue2:#8e44ad">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SchemaBridge X · RPBeduWorld2</title>
+<meta name="description" content="Convert courses between LessonGeneratorAI, LearnMasterPlatform and Universal schemas with validation and preview.">
+<link rel="icon" href="../../shared/favicon.svg">
+<link rel="stylesheet" href="../../shared/rpw2.css">
+<style>
+  .drop-mini { border:1.5px dashed var(--glass-brd); border-radius:12px; padding:22px 14px; text-align:center; cursor:pointer; background:var(--input-bg); transition:all .2s ease; }
+  .drop-mini:hover,.drop-mini.drag{border-color:var(--app-hue2);background:color-mix(in srgb,var(--app-hue2) 6%,transparent);}
+  .fmt-badge { font-size:11px; font-weight:800; letter-spacing:.05em; text-transform:uppercase; padding:3px 10px; border-radius:99px; }
+  .arrow { font-size:30px; color:var(--app-hue2); text-shadow:var(--glow); }
+  .diff-row { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:9px; }
+  @media(max-width:700px){.diff-row{grid-template-columns:1fr;}}
+  .diff-cell{border:1px solid var(--glass-brd);border-radius:10px;padding:10px 12px;font-size:12.5px;background:var(--input-bg);max-height:150px;overflow:auto;}
+  .stats-chip{display:inline-flex;align-items:center;gap:5px;padding:4px 11px;border-radius:99px;font-size:12px;font-weight:700;background:color-mix(in srgb,var(--app-hue1) 15%,transparent);border:1px solid color-mix(in srgb,var(--app-hue1) 32%,transparent);}
+</style>
+</head>
+<body>
+<header class="rpw-topbar">
+  <a class="rpw-home" href="../../index.html"><b>⬡ RPW²</b></a>
+  <div class="rpw-app-title"></div>
+  <div class="rpw-topbar-actions"><button class="rpw-theme-toggle" aria-label="Toggle theme"></button></div>
+</header>
+<main class="rpw-container">
+  <div class="rpw-hero rpw-rise">
+    <h1>Schema<span class="grad">Bridge X</span></h1>
+    <p>Universal course-format translator — bridge LessonGeneratorAI ⇄ LearnMasterPlatform ⇄ Universal JSON with live validation.</p>
+  </div>
+
+  <div class="rpw-grid mb-3" style="grid-template-columns:repeat(auto-fit,minmax(260px,1fr))">
+    <section class="rpw-panel rpw-rise">
+      <div class="row spread mb-2"><b>Source course</b><span class="fmt-badge" id="srcFmt" style="background:var(--input-bg);color:var(--txt-3)">empty</span></div>
+      <div class="drop-mini" id="dzSrc">
+        <div style="font-size:26px">📥</div><b class="small">Drop or click</b><p class="tiny faint">course .json</p>
+        <input type="file" id="fileSrc" accept=".json,application/json" hidden>
+      </div>
+      <textarea class="rpw-textarea mono mt-2" id="txtSrc" placeholder='…or paste course JSON here' style="min-height:130px;font-size:11.5px" spellcheck="false"></textarea>
+    </section>
+
+    <section class="rpw-panel rpw-rise center" style="animation-delay:.06s;display:flex;flex-direction:column;justify-content:center;gap:14px">
+      <b class="small muted" style="text-transform:uppercase;letter-spacing:.08em">Target format</b>
+      <select class="rpw-select" id="targetSel">
+        <option value="universal">Universal (rpw2.course.v1)</option>
+        <option value="lgai">LessonGeneratorAI (modules → lessons)</option>
+        <option value="lmp">LearnMasterPlatform (modules → units)</option>
+      </select>
+      <div class="center arrow">⇩</div>
+      <button class="rpw-btn primary lg" id="btnConvert">⚡ Convert</button>
+      <div class="row wrap center" style="justify-content:center" id="convStats"></div>
+    </section>
+
+    <section class="rpw-panel rpw-rise" style="animation-delay:.12s">
+      <div class="row spread mb-2"><b>Output</b><span class="fmt-badge" id="outFmt" style="background:var(--input-bg);color:var(--txt-3)">—</span></div>
+      <textarea class="rpw-textarea mono" id="txtOut" placeholder="Converted JSON appears here…" style="min-height:186px;font-size:11.5px" spellcheck="false"></textarea>
+      <div class="row mt-2"><button class="rpw-btn grow primary" id="btnDownload" disabled>Download JSON</button></div>
+    </section>
+  </div>
+
+  <!-- validation + structure -->
+  <div class="rpw-grid">
+    <section class="rpw-panel rpw-rise">
+      <div class="rpw-section-title">Validation report</div>
+      <div id="validation"><div class="rpw-empty" style="padding:20px"><p>Load a source course to validate its schema.</p></div></div>
+    </section>
+    <section class="rpw-panel rpw-rise" style="animation-delay:.06s">
+      <div class="rpw-section-title">Structure map</div>
+      <div id="structureMap"><div class="rpw-empty" style="padding:20px"><p>Structure comparison appears after conversion.</p></div></div>
+    </section>
+  </div>
+</main>
+<footer class="rpw-footer">SchemaBridge X · part of <b>RPBeduWorld2</b> · one format to rule them all</footer>
+<script src="../../shared/rpw2.js"></script>
+<script>
+(function(){
+"use strict";
+const $=s=>document.querySelector(s);
+RPW2.initTopbar("SchemaBridge X","code");
+
+let srcData=null,outData=null;
+
+/* ---------- input handling ---------- */
+function wireDrop(dzId,fileId,cb){
+  const dz=$(dzId);
+  dz.onclick=()=>$(fileId).click();
+  $(fileId).onchange=e=>{const f=e.target.files[0];if(f)readFile(f,cb);};
+  ["dragover","dragenter"].forEach(ev=>dz.addEventListener(ev,e=>{e.preventDefault();dz.classList.add("drag");}));
+  ["dragleave","drop"].forEach(ev=>dz.addEventListener(ev,e=>{e.preventDefault();dz.classList.remove("drag");}));
+  dz.addEventListener("drop",e=>{const f=e.dataTransfer.files[0];if(f)readFile(f,cb);});
+}
+function readFile(f,cb){
+  if(!/\.json$/i.test(f.name)&&f.type!=="application/json"){toast("Please provide a .json file","err");return;}
+  const r=new FileReader();
+  r.onload=()=>cb(r.result);
+  r.onerror=()=>toast("Could not read file","err");
+  r.readAsText(f);
+}
+wireDrop("#dzSrc","#fileSrc",txt=>{
+  $("#txtSrc").value=txt;
+  ingestSource(txt);
+});
+$("#txtSrc").addEventListener("change",()=>ingestSource($("#txtSrc").value));
+
+function ingestSource(txt){
+  try{
+    srcData=JSON.parse(txt);
+    const fmt=detectFormat(srcData);
+    $("#srcFmt").textContent=fmt.label;
+    $("#srcFmt").style.background="color-mix(in srgb,var(--app-hue1) 16%, transparent)";
+    $("#srcFmt").style.color="var(--txt)";
+    validateSource();
+  }catch(e){
+    srcData=null;
+    $("#srcFmt").textContent="invalid JSON";
+    toast("JSON parse error: "+e.message,"err");
+  }
+}
+function detectFormat(j){
+  if(j.schema==="rpw2.course.v1")return{id:"universal",label:"Universal"};
+  // LGAI: modules[].lessons[] with content objects / quiz with answerIndex
+  if(Array.isArray(j.modules)&&j.modules.length&&j.modules[0].lessons)return{id:"lgai",label:"LessonGeneratorAI"};
+  // LMP: modules[].units[] with TEXT/QUIZ/IMAGE
+  if(Array.isArray(j.modules)&&j.modules.length&&j.modules[0].units)return{id:"lmp",label:"LearnMasterPlatform"};
+  if(Array.isArray(j.courses))return{id:"multi",label:"Bundle ("+j.courses.length+" courses)"};
+  return{id:"unknown",label:"Unknown"};
+}
+
+/* ---------- validation ---------- */
+function validateSource(){
+  const j=srcData,f=detectFormat(j),rows=[];
+  rows.push({ok:f.id!=="unknown",label:"Format recognized",detail:f.label});
+  rows.push({ok:!!j.title,label:"Course title present",detail:j.title||"—"});
+  const mods=j.modules||[];
+  rows.push({ok:mods.length>0,label:"Modules found",detail:String(mods.length)});
+  let lessons=0,quizzes=0,imgs=0,textLen=0;
+  mods.forEach(m=>{
+    const ls=m.lessons||m.units||[];
+    lessons+=ls.length;
+    ls.forEach(l=>{
+      if(l.quiz){quizzes+=l.quiz.length;}
+      if(l.units)l.units.forEach(u=>{if(u.type==="IMAGE")imgs++;if(u.type==="TEXT")textLen+=(u.text||u.content||"").length;if(u.type==="QUIZ")quizzes++;});
+      if(l.content&&typeof l.content==="string")textLen+=l.content.length;
+    });
+  });
+  rows.push({ok:lessons>0,label:"Lessons/units found",detail:String(lessons)});
+  rows.push({ok:true,label:"Quiz questions",detail:String(quizzes)});
+  rows.push({ok:true,label:"Text volume",detail:(textLen/1000).toFixed(1)+"k chars"});
+  if(imgs)rows.push({ok:true,label:"Images referenced",detail:String(imgs)});
+  $("#validation").innerHTML=rows.map(r=>'<div class="val-row" style="display:flex;gap:9px;padding:7px 0;border-bottom:1px solid var(--glass-brd);font-size:13px">'+
+    '<span style="color:'+(r.ok?"var(--rpw-ok)":"var(--rpw-warn)")+'">'+RPW2.icon(r.ok?"check":"info",15)+'</span>'+
+    '<span class="grow">'+esc(r.label)+(r.detail?'<span class="faint tiny"> — '+esc(String(r.detail).slice(0,80))+"</span>":"")+"</span></div>").join("");
+}
+
+/* ---------- conversion ---------- */
+$("#btnConvert").onclick=()=>{
+  if(!srcData){toast("Load a source course first","err");return;}
+  const fmt=detectFormat(srcData);
+  const target=$("#targetSel").value;
+  try{
+    if(fmt.id==="multi"){
+      outData={courses:srcData.courses.map(c=>convertOne(c,target))};
+    } else outData=convertOne(srcData,target);
+    $("#txtOut").value=JSON.stringify(outData,null,2);
+    $("#outFmt").textContent=target.toUpperCase();
+    $("#btnDownload").disabled=false;
+    const n=countLessons(outData);
+    $("#convStats").innerHTML='<span class="stats-chip">'+RPW2.icon("check",13)+" "+n.lessons+' lessons</span><span class="stats-chip">'+n.quizzes+" quiz Qs</span>";
+    paintStructureMap(fmt.id,target,n);
+    toast("Conversion complete","ok");RPW2.sfx.ok();
+  }catch(e){toast("Conversion failed: "+e.message,"err");}
+};
+function countLessons(o){
+  let lessons=0,quizzes=0;
+  const arr=o.courses||[o];
+  arr.forEach(c=>{
+    (c.modules||[]).forEach(m=>{
+      (m.lessons||m.units||[]).forEach(l=>{
+        lessons++;
+        quizzes+=((l.quiz&&l.quiz.length)||0);
+        if(l.units)l.units.forEach(u=>{if(u.type==="QUIZ")quizzes++;});
+      });
+    });
+  });
+  return{lessons,quizzes};
+}
+function plainToHtml(t){return "<p>"+RPW2.escapeHtml(String(t||"")).replace(/\n/g,"<br>")+"</p>";}
+
+function convertOne(src,target){
+  const fmt=detectFormat(src);
+  const title=src.title||"Converted Course";
+  const subject=src.subject||(src.metadata&&src.metadata.subject)||"";
+
+  /* normalize source → universal first */
+  let modules=[];
+  if(fmt.id==="universal"){
+    modules=(src.modules||[]).map(m=>({
+      id:m.id||RPW2.uid(),title:m.title||"Module",
+      lessons:(m.lessons||[]).map(l=>({
+        id:l.id||RPW2.uid(),title:l.title||"Lesson",
+        html:typeof l.content==="string"?plainToHtml(l.content):(l.content||""),
+        quiz:(l.quiz||[]).map(q=>({q:q.q||q.question,options:q.options||[],answerIndex:num(q.answerIndex!=null?q.answerIndex:q.answer)}))
+      }))
+    }));
+  } else if(fmt.id==="lgai"){
+    modules=(src.modules||[]).map(m=>({
+      id:m.id||RPW2.uid(),title:m.title||"Module",
+      lessons:(m.lessons||[]).map(l=>({
+        id:l.id||RPW2.uid(),title:l.title||"Lesson",
+        html:htmlFromLGAI(l),
+        quiz:(l.quiz||[]).map(q=>({q:q.q||q.question||"",options:q.options||[],answerIndex:num(q.answerIndex!=null?q.answerIndex:q.answer)}))
+      }))
+    }));
+  } else if(fmt.id==="lmp"){
+    modules=(src.modules||[]).map(m=>({
+      id:m.id||RPW2.uid(),title:m.title||"Module",
+      lessons:(m.units||[]).map(l=>{
+        let html="",quiz=[];
+        (l.units||[]).forEach(u=>{
+          if(u.type==="TEXT")html+="<"+("p")+">"+RPW2.escapeHtml(u.text||u.content||"").replace(/\n/g,"<br>")+"</"+("p")+">";
+          else if(u.type==="IMAGE")html+='<img src="'+RPW2.escapeHtml(u.url||u.src||"")+'" alt="'+RPW2.escapeHtml(u.alt||"")+'" style="max-width:100%">';
+          else if(u.type==="QUIZ")quiz.push({q:u.question||"",options:(u.options||[]).map(o=>typeof o==="string"?o:o.text),answerIndex:num(u.correctOptionIndex!=null?u.correctOptionIndex:u.correctIndex)});
+        });
+        return{id:l.id||RPW2.uid(),title:l.title||"Lesson",html,quiz};
+      })
+    }));
+  } else throw new Error("Unsupported source format");
+
+  const universal={schema:"rpw2.course.v1",title,subject,author:src.author||"",created:src.created||new Date().toISOString(),modules};
+
+  /* emit target */
+  if(target==="universal")return universal;
+  if(target==="lgai"){
+    return {title,subject,created:new Date().toISOString(),
+      modules:modules.map(m=>({id:m.id,title:m.title,
+        lessons:m.lessons.map(l=>({id:l.id,title:l.title,content:{text:stripHtml(l.html)},quiz:l.quiz.map(q=>({question:q.q,options:q.options,answerIndex:q.answerIndex}))}))}))};
+  }
+  /* LMP */
+  return {title,subject,created:new Date().toISOString(),
+    modules:modules.map(m=>({id:m.id,title:m.title,
+      units:m.lessons.map(l=>({id:l.id,title:l.title,units:[
+        {type:"TEXT",text:stripHtml(l.html)},
+        ...l.quiz.map(q=>({type:"QUIZ",question:q.q,options:q.options.map(t=>({text:t})),correctOptionIndex:q.answerIndex}))
+      ]}))}))};
+}
+function num(v){v=+v;return isNaN(v)?0:v;}
+function htmlFromLGAI(l){
+  if(typeof l.content==="string")return plainToHtml(l.content);
+  if(l.content&&typeof l.content==="object"){
+    let h="";
+    if(l.content.text)h+=plainToHtml(l.content.text);
+    if(l.content.html)h+=String(l.content.html);
+    if(l.content.imageUrl)h+='<img src="'+RPW2.escapeHtml(l.content.imageUrl)+'" alt="" style="max-width:100%">';
+    return h||"<p></p>";
+  }
+  return "<p></p>";
+}
+function stripHtml(h){return String(h||"").replace(/<[^>]+>/g,"\n").replace(/\n{2,}/g,"\n").trim();}
+function paintStructureMap(from,to,n){
+  const names={universal:"Universal",lgai:"LessonGeneratorAI",lmp:"LearnMasterPlatform"};
+  $("#structureMap").innerHTML=
+   '<table class="rpw-table"><thead><tr><th>Concept</th><th>'+esc(names[from]||from)+'</th><th>'+esc(names[to])+'</th></tr></thead><tbody>'+
+   [["Course","root object","root object"],["Module","modules[i]","modules[i]"],["Lesson","modules[i].lessons[j]","modules[i].lessons[j] / units[j]"],
+    ["Content","content (string/object)","content.text / TEXT units"],["Quiz","quiz[k].answerIndex","QUIZ unit.correctOptionIndex"]]
+   .map(r=>"<tr><td><b>"+r[0]+"</b></td><td class='mono small'>"+esc(r[1])+"</td><td class='mono small'>"+esc(r[2])+"</td></tr>").join("")+
+   "</tbody></table>"+
+   '<p class="tiny faint mt-2">'+n.lessons+" lessons · "+n.quizzes+" quiz questions mapped</p>";
+}
+
+/* ---------- download + sample ---------- */
+$("#btnDownload").onclick=()=>{
+  const name=(outData.title||outData.courses&&outData.courses[0]&&outData.courses[0].title||"converted-course")
+    .toLowerCase().replace(/[^a-z0-9]+/g,"-");
+  RPW2.download(name+"."+$("#targetSel").value+".json",$("#txtOut").value,"application/json");
+  toast("File downloaded","ok");
+};
+})();
+</script>
+</body>
+</html>
