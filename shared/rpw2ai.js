@@ -317,7 +317,7 @@ function studio(opts){
     const btn=bd.querySelector("#aiGo");btn.disabled=true;btn.innerHTML='<span class="ai-spin"></span>Generating…';
     try{
      const v=vals();
-     if(!v.topic&&fields.some(f=>f.id==="topic"))throw new Error("Enter a topic first");
+     if(!v.topic&&fields.some(f=>f.id==="topic")&&!(v.notes||"").trim())throw new Error("Enter a topic or paste notes first");
      const r=await generate({prompt:opts.buildPrompt?opts.buildPrompt(v):"",offline:()=>opts.offline(v),validate:opts.validate});
      last=r.data;lastSrc=r.source;
      bd.querySelector("#aiOut").innerHTML=opts.preview?opts.preview(r.data):'<pre style="white-space:pre-wrap;margin:0">'+escapeHtml(JSON.stringify(r.data,null,1))+'</pre>';

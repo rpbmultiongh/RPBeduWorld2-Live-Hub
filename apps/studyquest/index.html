@@ -29,6 +29,27 @@
   canvas.chart{width:100%;height:130px;display:block;}
   .log-item { display:flex; align-items:center; gap:10px; padding:8px 4px; border-bottom:1px solid var(--glass-brd); font-size:13px; }
   .log-item:last-child{border-bottom:none;}
+  /* ---- quiz options: big, readable, tap-friendly ---- */
+  #opts{display:flex;flex-direction:column;gap:10px;margin-top:8px}
+  .quiz-opt{display:flex;align-items:center;width:100%;text-align:left;padding:13px 15px;border-radius:13px;
+    border:1px solid var(--glass-brd);background:var(--input-bg);color:var(--txt);font-size:15px;line-height:1.45;
+    font-family:inherit;cursor:pointer;transition:transform .14s ease,border-color .14s ease,box-shadow .14s ease}
+  .quiz-opt:hover:not(:disabled){transform:translateY(-2px);border-color:var(--app-hue1);box-shadow:var(--glow)}
+  .quiz-opt:focus-visible{outline:2px solid var(--app-hue1);outline-offset:2px}
+  .quiz-opt:disabled{cursor:default;opacity:.85}
+  .quiz-opt .key{flex:none;display:inline-grid;place-items:center;width:26px;height:26px;margin-right:12px;border-radius:8px;
+    background:color-mix(in srgb,var(--app-hue1) 16%,transparent);font-weight:800;font-size:12.5px;color:var(--txt)}
+  .quiz-opt.right{border-color:#2ecc71;background:color-mix(in srgb,#2ecc71 15%,var(--input-bg));animation:optPop .45s ease}
+  .quiz-opt.right .key{background:#2ecc71;color:#04240f}
+  .quiz-opt.wrong{border-color:#e74c3c;background:color-mix(in srgb,#e74c3c 13%,var(--input-bg))}
+  @keyframes optPop{0%{transform:scale(1)}45%{transform:scale(1.025)}100%{transform:scale(1)}}
+  .qbar{height:6px;border-radius:99px;background:var(--input-bg);overflow:hidden;margin-bottom:14px}
+  .qbar>div{height:100%;border-radius:99px;background:linear-gradient(90deg,var(--app-hue1),var(--app-hue2));transition:width .3s ease}
+  .rev-item{display:flex;gap:9px;padding:7px 0;border-bottom:1px solid var(--glass-brd);font-size:13px;align-items:flex-start}
+  .rev-item:last-child{border-bottom:none}
+  .rec-item{display:flex;align-items:center;gap:11px;padding:9px 4px;border-bottom:1px solid var(--glass-brd);font-size:13.5px}
+  .rec-item:last-child{border-bottom:none}
+  .score-pill{flex:none;min-width:52px;text-align:center;font-weight:800;font-size:12.5px;padding:3px 9px;border-radius:99px}
 </style>
 </head>
 <body>
@@ -73,6 +94,12 @@
     <div class="subj-grid" id="subjGrid"></div>
   </section>
 
+  <!-- ARENA RECORDS -->
+  <section class="rpw-panel mb-3 rpw-rise" style="animation-delay:.12s">
+    <div class="rpw-section-title">Arena records <span class="rpw-badge" id="recCount"></span></div>
+    <div id="recordsBox" style="max-height:230px;overflow:auto"></div>
+  </section>
+
   <!-- ACHIEVEMENTS -->
   <section class="rpw-panel mb-3 rpw-rise" style="animation-delay:.15s">
     <div class="rpw-section-title">Achievements <span class="rpw-badge" id="achCount"></span></div>
@@ -101,8 +128,11 @@
 <script>
 (function(){
 "use strict";
+const toast=RPW2.toast;
 const esc=s=>String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"})[c]);
 const K={p:"studyquest.player",log:"studyquest.log",ach:"studyquest.achievements"};
+const K_REC="studyquest.completions";
+let completions=RPW2.store.get(K_REC,[]);
 const $=s=>document.querySelector(s);
 RPW2.initTopbar("StudyQuest","trophy");
 
@@ -249,6 +279,7 @@ function renderAll(){
   $("#achGrid").innerHTML=ACH.map(a=>'<div class="ach'+(unlocked[a.id]?" unlocked":"")+'" title="'+esc(a.desc)+'"><div class="ico">'+a.ico+'</div><b>'+esc(a.name)+'</b><small>'+esc(a.desc)+'</small></div>').join("");
   $("#activityLog").innerHTML=log.length?log.slice(0,15).map(e=>'<div class="log-item"><span class="badge-ok rpw-badge ok">+'+e.xp+'</span><span class="grow truncate">'+esc(e.label)+'</span><span class="faint tiny">'+new Date(e.time).toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"})+'</span></div>').join(""):'<div class="rpw-empty" style="padding:22px"><div class="big">📝</div><p>No activity yet — go earn some XP!</p></div>';
   drawWeekChart();
+  paintRecords();
 }
 function drawWeekChart(){
   const cv=$("#weekChart"),ctx=cv.getContext("2d");
@@ -278,8 +309,29 @@ $("#quickActions").addEventListener("click",e=>{
 });
 
 /* ---------- subjects ---------- */
+function bestFor(subj){
+ const done=completions.filter(c=>c.s===subj);
+ if(!done.length)return null;
+ return done.reduce((a,c)=>(c.score/c.total)>(a.score/a.total)?c:a,done[0]);
+}
+function pctColor(p){return p>=.8?"#2ecc71":p>=.5?"#f39c12":"#e74c3c";}
 function paintSubjects(){
- $("#subjGrid").innerHTML=Object.keys(BANK).map(s=>'<button class="subj" data-subj="'+esc(s)+'"><div style="font-size:30px">'+s.split(" ")[0]+'</div><b>'+esc(s.replace(/^\S+\s/,""))+'</b><div class="tiny faint mt-1">'+BANK[s].length+' questions · +10 XP each</div></button>').join("");
+ $("#subjGrid").innerHTML=Object.keys(BANK).map(s=>{
+  const b=bestFor(s);
+  return '<button class="subj" data-subj="'+esc(s)+'"><div style="font-size:30px">'+s.split(" ")[0]+'</div><b>'+esc(s.replace(/^\S+\s/,""))+'</b><div class="tiny faint mt-1">'+BANK[s].length+' questions · +10 XP each'+(b?('</div><div class="tiny bold mt-1" style="color:'+pctColor(b.score/b.total)+'">Best '+b.score+"/"+b.total+(b.score===b.total?" ★":"")+"</div>"):"")+"</button>";
+ }).join("");
+}
+function paintRecords(){
+ const box=$("#recordsBox");
+ $("#recCount").textContent=completions.length+" completed";
+ box.innerHTML=completions.length?completions.slice(0,20).map(c=>{
+  const p=c.score/c.total,col=pctColor(p);
+  const medal=p===1?"🏆":p>=.8?"🥇":p>=.5?"🥈":"🥉";
+  return '<div class="rec-item"><span style="font-size:20px">'+medal+'</span><span class="grow truncate bold">'+esc(c.s.replace(/^\S+\s/,""))+'</span>'+
+   '<span class="score-pill" style="color:'+col+';background:color-mix(in srgb,'+col+' 14%,transparent)">'+c.score+"/"+c.total+'</span>'+
+   '<span class="badge-ok rpw-badge ok" title="XP earned">+'+c.xp+'</span>'+
+   '<span class="faint tiny">'+new Date(c.time).toLocaleDateString([],{month:"short",day:"numeric"})+' '+new Date(c.time).toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"})+'</span></div>';
+ }).join(""):'<div class="rpw-empty" style="padding:20px"><div class="big">🎯</div><p>Complete an arena challenge and your results will be recorded here.</p></div>';
 }
 paintSubjects();
 $("#subjGrid").addEventListener("click",e=>{
@@ -291,15 +343,49 @@ const K_CUSTOM="sq.customBanks";
 try{(RPW2.store.get(K_CUSTOM,[])||[]).forEach(b=>{BANK[b.name]=b.items;});}catch(e){}
 RPW2.AI.attachFab(()=>RPW2.AI.studio({
  title:"✨ AI Quest Forge",
- subtitle:"Forge a brand-new question arena on any topic and earn XP in it.",
+ subtitle:"Forge a question arena from a topic — or paste your own lecture notes and be quizzed on exactly that.",
  fields:[
   {id:"topic",label:"Topic",placeholder:"e.g. Volcanoes, Shakespeare, Python basics"},
+  {id:"notes",label:"Lecture notes (optional — questions will come from these)",type:"textarea",placeholder:"Paste your lecture notes, slides text or summary here and the generated arena will test THIS material…"},
   {id:"count",label:"Questions",type:"number",value:10,min:4,max:20}
  ],
- buildPrompt:v=>`Create ${v.count} multiple-choice study questions about "${v.topic}". Respond ONLY with JSON array of {"q":"...","answer":"...","wrongs":["...","...","..."]}. Wrong answers must be plausible.`,
+ buildPrompt:v=>{
+  const n=String(v.notes||"").trim().slice(0,4000);
+  const c=Math.min(20,Math.max(4,+v.count||10));
+  if(n)return `Create ${c} multiple-choice study questions based strictly on the lecture notes below${v.topic?` (topic: "${v.topic}")`:""}. Questions must be answerable from the notes only. Respond ONLY with JSON array of {"q":"...","answer":"...","wrongs":["...","...","..."]}. Wrong answers must be plausible but clearly wrong to someone who read the notes.\n\nNOTES:\n${n}`;
+  return `Create ${c} multiple-choice study questions about "${v.topic}". Respond ONLY with JSON array of {"q":"...","answer":"...","wrongs":["...","...","..."]}. Wrong answers must be plausible.`;
+ },
  offline:v=>{
-  const g=RPW2.AI.gen,r=g.rng(v.topic+Math.random()),n=Math.min(20,Math.max(4,+v.count||10)),out=[];
-  for(let i=0;i<n;i++){const m=g.mcq(v.topic,r);out.push([m.q,m.options[m.answer],m.options.filter((_,j)=>j!==m.answer)]);}
+  const g=RPW2.AI.gen,r=g.rng((v.topic||"")+Math.random()),n=Math.min(20,Math.max(4,+v.count||10));
+  const notes=String(v.notes||"").trim();
+  if(notes.length>60){
+   const sents=notes.split(/(?<=[.!?])\s+|\n+/).map(x=>x.trim()).filter(x=>{const w=x.split(/\s+/).length;return w>=7&&x.length>=40&&x.length<=240;});
+   if(sents.length){
+    const kwAll=[...new Set(sents.flatMap(x=>g.kw(x)).filter(k=>k.length>4))];
+    const out=[],seen=new Set();
+    for(const sent of g.shuf(sents,r)){
+     const ks=g.kw(sent).filter(k=>k.length>4&&sent.includes(k));
+     if(!ks.length)continue;
+     const ans=g.pick(ks,r);
+     let q;
+     try{q=sent.replace(new RegExp(ans.replace(/[.*+?^\${}()|[\]\\]/g,"\\$&"),"i"),"_____");}catch(e){continue;}
+     if(q===sent||seen.has(q))continue;
+     seen.add(q);
+     const wrongs=g.shuf(kwAll.filter(x=>x!==ans),r).slice(0,3);
+     while(wrongs.length<3){const f=["process","structure","principle","mechanism","factor"][wrongs.length];if(!wrongs.includes(f))wrongs.push(f);}
+     out.push([q,ans,wrongs]);
+     if(out.length>=n)break;
+    }
+    if(out.length){
+     const topic=v.topic||g.kw(notes).slice(0,3).join(" ")||"the notes";
+     while(out.length<n){const m=g.mcq(topic,r);out.push([m.q,m.options[m.answer],m.options.filter((_,j)=>j!==m.answer)]);}
+     return out;
+    }
+   }
+  }
+  const topic=v.topic||g.kw(notes).slice(0,2).join(" ")||"your notes";
+  const out=[];
+  for(let i=0;i<n;i++){const m=g.mcq(topic,r);out.push([m.q,m.options[m.answer],m.options.filter((_,j)=>j!==m.answer)]);}
   return out;
  },
  preview:d=>d.map(q=>`<div class="ai-item"><b>${RPW2.escapeHtml(String(q[0]).slice(0,110))}</b><br><span class="small" style="color:#2ecc71">✔ ${RPW2.escapeHtml(String(q[1]).slice(0,90))}</span></div>`).join(""),
@@ -309,12 +395,13 @@ RPW2.AI.attachFab(()=>RPW2.AI.studio({
   return arr.map(x=>[String(x[0]),String(x[1]),(Array.isArray(x[2])?x[2]:[]).slice(0,3).map(String)]);
  },
  onData:(d,src,close)=>{
-  const topic=document.querySelector("[data-f=topic]").value||"Custom";
-  const name="✨ "+g_T(topic);
+  const tf=document.querySelector("[data-f=topic]"),nf=document.querySelector("[data-f=notes]");
+  const rawTopic=tf&&tf.value.trim();
+  const name="✨ "+g_T(rawTopic||(nf&&nf.value.trim()?g.kw(nf.value.trim()).slice(0,2).join("-")||"Notes":"Custom"));
   BANK[name]=d;
   const saved=(RPW2.store.get(K_CUSTOM,[])||[]).filter(b=>b.name!==name);
   saved.push({name,items:BANK[name]});RPW2.store.set(K_CUSTOM,saved);
-  paintSubjects();
+  paintSubjects();paintRecords();
   toast(`Arena "${name}" ready with ${d.length} questions (${src==="gemini"?"Gemini":"smart generator"})`,"ok");
   RPW2.confetti&&RPW2.confetti();close();
  }
@@ -326,34 +413,69 @@ function shuffle(a){for(let i=a.length-1;i>0;i--){const j=(Math.random()*(i+1))|
 function startQuiz(subject){
   const qs=shuffle([...BANK[subject]]).slice(0,8);
   let idx=0,score=0;
+  const answers=[]; // {q,pick,right}
   const m=RPW2.modal("Arena · "+esc(subject),'<div id="qa"></div>');
+  let keyHandler=null;
+  const cleanupKeys=()=>{if(keyHandler){document.removeEventListener("keydown",keyHandler);keyHandler=null;}};
+  const origClose=m.close.bind(m);
+  m.close=()=>{cleanupKeys();origClose();};
+
   const paintQ=()=>{
     const q=qs[idx];
+    const opts=shuffle([q[1],...q[2]]);
     m.el.querySelector("#qa").innerHTML=
       '<div class="row spread mb-2"><span class="small muted">Question '+(idx+1)+" / "+qs.length+'</span><span class="small bold grad-text">Score '+score+'</span></div>'+
-      '<h3 class="mb-2" style="font-size:18px">'+esc(q[0])+'</h3>'+
-      '<div id="opts">'+shuffle([q[1],...q[2]]).map(o=>'<button class="quiz-opt" data-o="'+esc(o)+'">'+esc(o)+'</button>').join("")+"</div>";
-    m.el.querySelector("#qa").querySelectorAll(".quiz-opt").forEach(btn=>btn.onclick=()=>{
+      '<div class="qbar"><div style="width:'+(idx/qs.length*100)+'%"></div></div>'+
+      '<h3 class="mb-2" style="font-size:18px;line-height:1.4">'+esc(q[0])+'</h3>'+
+      '<div id="opts">'+opts.map((o,i)=>'<button class="quiz-opt" data-o="'+esc(o)+'"><span class="key">'+"ABCD"[i]+"</span><span>"+esc(o)+"</span></button>").join("")+"</div>"+
+      '<p class="tiny faint mt-2 center">Tip: press A–D keys to answer</p>';
+    const btns=[...m.el.querySelector("#qa").querySelectorAll(".quiz-opt")];
+    if(keyHandler)document.removeEventListener("keydown",keyHandler);
+    keyHandler=e=>{
+      const i="abcd".indexOf(e.key.toLowerCase());
+      if(i>=0&&i<btns.length&&!btns[0].disabled){e.preventDefault();btns[i].click();}
+    };
+    document.addEventListener("keydown",keyHandler);
+    btns.forEach(btn=>btn.onclick=()=>{
       const right=btn.dataset.o===q[1];
-      m.el.querySelectorAll(".quiz-opt").forEach(el=>{el.disabled=true;if(el.dataset.o===q[1])el.classList.add("right");else if(el===btn)el.classList.add("wrong");});
+      answers.push({q:q[0],pick:btn.dataset.o,right});
+      btns.forEach(el=>{el.disabled=true;if(el.dataset.o===q[1])el.classList.add("right");else if(el===btn)el.classList.add("wrong");});
       if(right){score++;player.correctTotal++;RPW2.sfx.ok();}
       else RPW2.sfx.err();
       player.subjectHits=player.subjectHits||{};player.subjectHits[subject]=(player.subjectHits[subject]||0)+1;
       RPW2.store.set(K.p,player);
+      m.el.querySelector("#qa .qbar>div").style.width=((idx+1)/qs.length*100)+"%";
       setTimeout(()=>{
         idx++;
         if(idx<qs.length)paintQ();
-        else{
-          player.quizCount++;if(score===qs.length)player.hadPerfect=true;
-          RPW2.store.set(K.p,player);
-          addXP(score*10,'Quiz "'+subject.replace(/^\S+\s/,"")+'" — '+score+"/"+qs.length);
-          m.el.querySelector("#qa").innerHTML='<div class="center" style="padding:20px"><div style="font-size:52px">'+(score/qs.length>=.8?"🏆":"💪")+'</div><h2 class="grad-text">'+score+"/"+qs.length+'</h2><p class="muted mt-1">'+(score*10)+" XP earned"+(score===qs.length?" — PERFECT!":"")+'</p></div>';
-          checkAchievements();renderAll();
-          setTimeout(()=>m.close(),1900);
-        }
-      },750);
+        else finish();
+      },700);
     });
   };
+
+  function finish(){
+    cleanupKeys();
+    player.quizCount++;if(score===qs.length)player.hadPerfect=true;
+    RPW2.store.set(K.p,player);
+    addXP(score*10,'Quiz "'+subject.replace(/^\S+\s/,"")+'" — '+score+"/"+qs.length);
+    completions.unshift({s:subject,score,total:qs.length,xp:score*10,time:new Date().toISOString()});
+    completions=completions.slice(0,50);
+    RPW2.store.set(K_REC,completions);
+    paintSubjects();paintRecords();checkAchievements();renderAll();
+
+    const pct=Math.round(score/qs.length*100),col=pctColor(score/qs.length);
+    m.el.querySelector("#qa").innerHTML=
+      '<div class="center" style="padding:6px 0 2px"><div style="font-size:50px">'+(pct>=80?"🏆":pct>=50?"💪":"📚")+'</div>'+
+      '<h2 class="grad-text" style="font-size:30px">'+score+" / "+qs.length+'</h2>'+
+      '<span class="score-pill" style="color:'+col+';background:color-mix(in srgb,'+col+' 14%,transparent);font-size:14px;padding:5px 14px">'+pct+"%"+(pct===100?" — PERFECT!":"")+'</span>'+
+      '<p class="muted small mt-2">+'+(score*10)+' XP added to your adventure</p></div>'+
+      '<div style="max-height:200px;overflow:auto;margin-top:10px">'+answers.map(a=>
+        '<div class="rev-item"><span>'+(a.right?"✔":"✖")+'</span><span class="grow"><b>'+esc(a.q)+"</b><br><span class=\"tiny "+(a.right?"faint":"muted")+'\">'+(a.right?"Your answer: ":"Correct answer: ")+esc(a.right?a.pick:qs.find(x=>x[0]===a.q)?.[1]||"")+"</span></span></div>"
+      ).join("")+"</div>"+
+      '<div class="row spread mt-3"><button class="rpw-btn ghost" id="qRetry">↻ Retry arena</button><button class="rpw-btn primary" id="qDone">Done ✓</button></div>';
+    m.el.querySelector("#qDone").onclick=m.close;
+    m.el.querySelector("#qRetry").onclick=()=>{m.close();startQuiz(subject);};
+  }
   paintQ();
 }
 

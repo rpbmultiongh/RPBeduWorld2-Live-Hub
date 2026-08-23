@@ -95,6 +95,7 @@
 <script>
 (function(){
 "use strict";
+const toast=RPW2.toast;
 const esc=s=>String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"})[c]);
 const KEY="luminavault.notes";
 const $=s=>document.querySelector(s);
