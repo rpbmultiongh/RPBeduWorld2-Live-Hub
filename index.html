@@ -27,8 +27,8 @@
 <main class="rpw-container">
   <section class="rpw-hero rpw-rise">
     <h1>RPBedu<span class="grad">World²</span></h1>
-    <p>The supreme education suite — <b>13 rebuilt &amp; enhanced webapps</b>, one shared design system.
-    Now with an <b>✨ AI layer</b> in every app: Gemini when you add a free key, or a built-in smart generator offline.</p>
+    <p>The supreme education suite — <b>13 rebuilt &amp; enhanced webapps</b> + an AI testing ground, one shared design system.
+    Every app has an <b>✨ AI layer</b>: your choice of Gemini / OpenAI / Groq / OpenRouter with a free key (BYOK), or the built-in smart generator offline.</p>
     <div class="row wrap mt-2" style="gap:8px">
       <span class="rpw-chip">✨ AI in every app</span><span class="rpw-chip">100% client-side</span>
       <span class="rpw-chip">Dark-first glass UI</span><span class="rpw-chip">Works offline</span>
@@ -43,6 +43,7 @@
 </main>
 <footer class="rpw-footer">RPBeduWorld² · built as a static monorepo · <span id="yr"></span></footer>
 <script src="shared/rpw2.js"></script>
+<script src="shared/rpw2support.js"></script>
 <script>
 (function(){
 "use strict";
@@ -59,7 +60,8 @@ const APPS=[
  {id:"wikimedia-scout",ico:"🖼️",hue:"#74b9ff",name:"Wikimedia Scout",desc:"Search Commons images by license, build collections, export MD/HTML/JSON reports.",tags:["media","reports","ai"]},
  {id:"tutorial-studio",ico:"🧑‍🏫",hue:"#00b894",name:"Tutorial Studio",desc:"Author slide tutorials with checkpoint quizzes, matching games, undo/redo and themes.",tags:["tutorials","authoring","ai"]},
  {id:"mcat-prep-x",ico:"🧬",hue:"#ffeaa7",name:"MCAT Prep X",desc:"Timed MCAT practice across Chem/Phys, Bio/Biochem, Psych/Soc and CARS with analytics.",tags:["exam","practice","ai"]},
- {id:"playables-arcade",ico:"🕹️",hue:"#ff4d6d",name:"Playables Arcade",desc:"Nine science worlds — answer questions to construct glowing structures before lives run out.",tags:["arcade","science","ai"]}
+ {id:"playables-arcade",ico:"🕹️",hue:"#ff4d6d",name:"Playables Arcade",desc:"Nine science worlds — answer questions to construct glowing structures before lives run out.",tags:["arcade","science","ai"]},
+ {id:"ai-playground",ico:"🧪",hue:"#7c3aed",name:"AI Playground",desc:"Testing ground: multi-provider BYOK (Gemini, OpenAI, Groq, OpenRouter, custom), model picker, live prompt runs & history.",tags:["ai","tools","byok"]}
 ];
 const $=s=>document.querySelector(s);
 function paint(f){

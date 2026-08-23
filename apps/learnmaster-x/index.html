@@ -104,9 +104,11 @@
 <footer class="rpw-footer">LearnMaster X · part of <b>RPBeduWorld2</b> · a full LMS that lives in your browser</footer>
 <script src="../../shared/rpw2.js"></script>
 <script src="../../shared/rpw2ai.js"></script>
+<script src="../../shared/rpw2support.js"></script>
 <script>
 (function(){
 "use strict";
+const esc=s=>String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"})[c]);
 const K="learnmaster.courses";
 const $=s=>document.querySelector(s);
 $("#icoSearch").outerHTML=RPW2.icon("search",16);

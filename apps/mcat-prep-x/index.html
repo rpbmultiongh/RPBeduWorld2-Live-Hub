@@ -84,9 +84,11 @@
 <footer class="rpw-footer">MCAT Prep X · part of <b>RPBeduWorld2</b> · study smart, score high 🩺</footer>
 <script src="../../shared/rpw2.js"></script>
 <script src="../../shared/rpw2ai.js"></script>
+<script src="../../shared/rpw2support.js"></script>
 <script>
 (function(){
 "use strict";
+const esc=s=>String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"})[c]);
 const $=s=>document.querySelector(s);
 RPW2.initTopbar("MCAT Prep X","book");
 

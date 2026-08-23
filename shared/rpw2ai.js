@@ -1,4 +1,4 @@
-/* RPW2.AI — shared AI layer: Gemini BYOK + offline smart generators */
+/* RPW2.AI v2 — multi-provider BYOK AI layer + offline smart generators */
 (function(){
 "use strict";
 if(!window.RPW2){console.error("rpw2ai.js requires rpw2.js");return;}
@@ -14,22 +14,97 @@ const css=document.createElement("style");css.textContent=`
 @media(max-width:480px){.ai-grid2{grid-template-columns:1fr}}
 .ai-status{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 11px;border-radius:10px;border:1px dashed var(--glass-brd,rgba(255,255,255,.15));font-size:12px;margin-bottom:12px}
 .ai-badge{display:inline-flex;align-items:center;gap:5px;padding:2px 9px;border-radius:99px;font-size:10.5px;font-weight:700;border:1px solid var(--glass-brd,rgba(255,255,255,.15))}
-.ai-badge.gemini{color:#7ef9d2;border-color:rgba(126,249,210,.4);background:rgba(126,249,210,.08)}
+.ai-badge.gemini,.ai-badge.live{color:#7ef9d2;border-color:rgba(126,249,210,.4);background:rgba(126,249,210,.08)}
 .ai-badge.offline{color:#ffd166;border-color:rgba(255,209,102,.35);background:rgba(255,209,102,.07)}
 .ai-out{max-height:46vh;overflow:auto;border:1px solid var(--glass-brd,rgba(255,255,255,.14));border-radius:12px;padding:10px;margin-top:6px;font-size:13px;line-height:1.5}
 .ai-item{padding:9px 11px;border-radius:10px;background:rgba(255,255,255,.04);margin-bottom:7px;border-left:3px solid #00cec9}
 .ai-spin{display:inline-block;width:14px;height:14px;border:2px solid rgba(255,255,255,.25);border-top-color:#fff;border-radius:50%;animation:aispin .7s linear infinite;vertical-align:-2px;margin-right:7px}
 @keyframes aispin{to{transform:rotate(360deg)}}
+.ai-tabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px}
+.ai-tab{padding:7px 13px;border-radius:99px;border:1px solid var(--glass-brd);background:transparent;color:var(--txt,#eaf0ff);cursor:pointer;font-size:12px;font-weight:700}
+.ai-tab.on{background:linear-gradient(135deg,#7c3aed,#00cec9);border-color:transparent;color:#fff}
+.ai-test-out{font-size:12px;padding:9px 11px;border-radius:10px;margin-top:8px;display:none}
 `;
 document.head.appendChild(css);
 
-/* ---------- key & prefs ---------- */
-const AI={
- key:store.get("ai.key","")||"",
- model:store.get("ai.model","gemini-2.0-flash"),
- setKey(k){this.key=(k||"").trim();store.set("ai.key",this.key);},
- setModel(m){this.model=m;store.set("ai.model",m);}
+/* ---------- provider registry ---------- */
+const PROVIDERS={
+ google:{name:"Google Gemini",keyph:"AIza…",models:["gemini-2.0-flash","gemini-2.5-flash","gemini-2.5-pro","gemini-2.0-flash-lite"],link:"aistudio.google.com/apikey"},
+ openai:{name:"OpenAI",keyph:"sk-…",models:["gpt-4o-mini","gpt-4o","gpt-4.1-mini"],link:"platform.openai.com/api-keys"},
+ groq:{name:"Groq",keyph:"gsk_…",models:["llama-3.3-70b-versatile","llama-3.1-8b-instant","mixtral-8x7b-32768"],link:"console.groq.com/keys"},
+ openrouter:{name:"OpenRouter",keyph:"sk-or-…",models:["meta-llama/llama-3.3-70b-instruct:free","google/gemini-2.0-flash-exp:free","deepseek/deepseek-chat"],link:"openrouter.ai/keys"},
+ custom:{name:"Custom (OpenAI-compatible)",keyph:"sk-… or token",models:[],link:"your endpoint /v1/chat/completions"}
 };
+const CFG={
+ provider:store.get("ai.provider","google"),
+ keys:store.get("ai.keys",{}),
+ models:store.get("ai.models",{}),
+ defaults:{google:"gemini-2.0-flash",openai:"gpt-4o-mini",groq:"llama-3.3-70b-versatile",openrouter:"meta-llama/llama-3.3-70b-instruct:free",custom:""},
+ baseUrl:store.get("ai.baseUrl","")
+};
+function model(){return CFG.models[CFG.provider]||CFG.defaults[CFG.provider]||"";}
+function hasKey(p){p=p||CFG.provider;return !!(CFG.keys[p]&&CFG.keys[p].trim());}
+
+/* ---------- unified LLM call ---------- */
+async function callLLM(prompt,o){
+ o=o||{};
+ const p=o.provider||CFG.provider,key=(CFG.keys[p]||"").trim();
+ if(!key)throw new Error("No API key set for "+PROVIDERS[p].name+" — add one in AI Settings");
+ const mdl=o.model||model(),temp=o.temperature!=null?o.temperature:.9;
+ let txt="";
+ if(p==="google"){
+  const url="https://generativelanguage.googleapis.com/v1beta/models/"+encodeURIComponent(mdl)+":generateContent?key="+encodeURIComponent(key);
+  const res=await fetch(url,{method:"POST",headers:{"Content-Type":"application/json"},
+   body:JSON.stringify({contents:o.system?[{role:"user",parts:[{text:o.system+"\n\n"+prompt}]}]:[{parts:[{text:prompt}]}],
+    generationConfig:{temperature:temp,maxOutputTokens:o.maxTokens||2048}})});
+  if(!res.ok)throw await httpErr(res);
+  const j=await res.json();
+  txt=(j.candidates&&j.candidates[0]&&j.candidates[0].content&&j.candidates[0].content.parts||[]).map(x=>x.text||"").join("");
+ }else{
+  let url,body,headers={"Content-Type":"application/json"};
+  if(p==="custom"){if(!CFG.baseUrl)throw new Error("Set a base URL for the custom provider in AI Settings");
+   url=CFG.baseUrl.replace(/\/+$/,"")+"/chat/completions";}
+  else if(p==="openai")url="https://api.openai.com/v1/chat/completions";
+  else if(p==="groq")url="https://api.groq.com/openai/v1/chat/completions";
+  else if(p==="openrouter"){url="https://openrouter.ai/api/v1/chat/completions";headers["HTTP-Referer"]=location.origin;}
+  headers.Authorization="Bearer "+key;
+  body={model:mdl,temperature:temp,max_tokens:o.maxTokens||2048,
+   messages:[...(o.system?[{role:"system",content:o.system}]:[]),{role:"user",content:prompt}]};
+  const res=await fetch(url,{method:"POST",headers,body:JSON.stringify(body)});
+  if(!res.ok)throw await httpErr(res);
+  const j=await res.json();
+  txt=((j.choices||[])[0]||{}).message?((j.choices[0].message.content||"")):"";
+ }
+ if(!txt)throw new Error("Empty response from "+PROVIDERS[p].name);
+ return txt;
+}
+async function httpErr(res){let m="HTTP "+res.status;try{const e=await res.json();m=e.error&&(e.error.message||e.error.type)||m;}catch(e){}const err=new Error(m);err.status=res.status;return err;}
+
+function extractJSON(text){
+ let t=String(text).trim().replace(/^```(?:json)?/i,"").replace(/```\s*$/,"").trim();
+ const s=t.search(/[[{]/);if(s<0)throw new Error("no JSON found in response");
+ const open=t[s],close=open==="["?"]":"}";
+ const e=t.lastIndexOf(close);if(e<=s)throw new Error("unterminated JSON in response");
+ return JSON.parse(t.slice(s,e+1));
+}
+
+/* ---------- orchestrator ---------- */
+async function generate(opts){
+ const provider=opts.provider||"auto";
+ if(provider!=="offline"&&hasKey()){
+  try{
+   let data=extractJSON(await callLLM(opts.prompt));
+   if(opts.validate)data=opts.validate(data);
+   return {source:provider==="auto"?CFG.provider:provider,data};
+  }catch(err){
+   toast(PROVIDERS[CFG.provider].name+" failed ("+err.message+") — using smart generator","err");
+  }
+ }
+ if(!opts.offline)throw new Error("No offline generator available and no working API key.");
+ let data=await opts.offline();
+ if(opts.validate){try{data=opts.validate(data);}catch(e){}}
+ return {source:"offline",data};
+}
 
 /* ---------- offline smart-generation engine ---------- */
 function hashStr(s){let h=2166136261;for(let i=0;i<s.length;i++){h^=s.charCodeAt(i);h=Math.imul(h,16777619);}return h>>>0;}
@@ -39,8 +114,6 @@ function shuf(a,r){const x=a.slice();for(let i=x.length-1;i>0;i--){const j=Math.
 const STOP=new Set("the a an of for and or to in on with how what why when which that this is are was were be been being it its into from as at by about".split(" "));
 function kw(topic){return String(topic||"study topic").toLowerCase().replace(/[^a-z0-9\s-]/g," ").split(/\s+/).filter(w=>w.length>3&&!STOP.has(w));}
 function T(topic){topic=String(topic||"").trim()||"the topic";return topic.charAt(0).toUpperCase()+topic.slice(1);}
-
-/* micro-glossary: detected concepts get richer generated content */
 const GLOSSARY=[
  [/\bphotosynth/i,"Photosynthesis converts light energy into chemical energy (glucose) using chlorophyll, water and CO₂, releasing oxygen."],
  [/\bcell(ular)?\b/i,"Cells are the basic structural and functional units of life, enclosed by a membrane and carrying genetic material."],
@@ -58,8 +131,6 @@ const GLOSSARY=[
  [/\bclimate|ecosystem|environment|energy|pollut/i,"Environmental systems cycle matter and flow energy; human activity alters these balances measurably."]
 ];
 function gloss(topic){for(const [re,def] of GLOSSARY)if(re.test(topic))return def;return null;}
-
-/* generic item factories — all deterministic given seed */
 const gen={
  mcq(topic,r){
   const t=T(topic),g=gloss(topic);
@@ -72,7 +143,7 @@ const gen={
    `${t} applies identically in every context, requiring no adjustment for conditions.`,
    `Nothing measurable can be concluded about ${t.toLowerCase()} in practice.`,
    `${t} was fully solved long ago and no active research continues.`,
-   `Only experts can ever reason about ${t.toLowerCase()} — basics are irrelevant.`].map(s=>s.replace(/\s+/g," ")),r).slice(0,3);
+   `Only experts can ever reason about ${t.toLowerCase()} — basics are irrelevant.`],r).slice(0,3);
   const stem=pick([
    `Which statement best describes ${t.toLowerCase()}?`,
    `Regarding ${t.toLowerCase()}, which claim is accurate?`,
@@ -83,8 +154,7 @@ const gen={
  },
  cloze(topic,r){
   const kws=kw(topic),t=T(topic),k=kws.length?pick(kws,r):t;
-  return {q:`Fill in the blank: A key term associated with ${t.toLowerCase()} is “____”, which appears throughout this topic.`,
-   answer:k};
+  return {q:`Fill in the blank: A key term associated with ${t.toLowerCase()} is “____”, which appears throughout this topic.`,answer:k};
  },
  shortQA(topic,r){
   const t=T(topic),g=gloss(topic);
@@ -106,70 +176,73 @@ const gen={
  }
 };
 
-/* ---------- Gemini (BYOK) ---------- */
-async function gemini(prompt){
- if(!AI.key)throw new Error("no-key");
- const url=`https://generativelanguage.googleapis.com/v1beta/models/${AI.model}:generateContent?key=${encodeURIComponent(AI.key)}`;
- const res=await fetch(url,{method:"POST",headers:{"Content-Type":"application/json"},
-  body:JSON.stringify({contents:[{parts:[{text:prompt}]}],generationConfig:{temperature:.9,maxOutputTokens:2048}})});
- if(!res.ok){const e=await res.json().catch(()=>({}));throw new Error(e.error?.message||("HTTP "+res.status));}
- const j=await res.json();
- const txt=j.candidates?.[0]?.content?.parts?.map(p=>p.text).join("")||"";
- if(!txt)throw new Error("empty response");
- return txt;
-}
-function extractJSON(text){
- let t=String(text).trim().replace(/^```(?:json)?/i,"").replace(/```$/,"").trim();
- const s=t.search(/[[{]/);if(s<0)throw new Error("no JSON found");
- const open=t[s],close=open==="["?"]":"}";
- const e=t.lastIndexOf(close);if(e<=s)throw new Error("unterminated JSON");
- return JSON.parse(t.slice(s,e+1));
-}
-
-/* ---------- orchestrator ---------- */
-async function generate(opts){
- // opts: {prompt, offline, validate, provider} -> {source:"gemini"|"offline", data, raw?}
- const provider=opts.provider||"auto";
- if(provider!=="offline"&&AI.key){
-  try{
-   let data=extractJSON(await gemini(opts.prompt));
-   if(opts.validate)data=opts.validate(data);
-   return {source:"gemini",data};
-  }catch(err){
-   toast("Gemini failed ("+err.message+") — using smart generator","err");
-  }
- }
- if(!opts.offline)throw new Error("No offline generator provided and no API key set.");
- let data=await opts.offline();
- if(opts.validate){try{data=opts.validate(data);}catch(e){}}
- return {source:"offline",data};
-}
-
-/* ---------- key manager ---------- */
-function keyModal(after){
- const m=modal("🔑 AI Settings",
-  `<div class="ai-row"><label>Google Gemini API key <span class="muted">(free tier · stored only in your browser)</span></label>
-    <input class="rpw-input" id="aiKeyInp" type="password" placeholder="AIza…  (leave empty to use offline smart generator)" value="${escapeHtml(AI.key)}"></div>
-   <div class="ai-row"><label>Model</label>
-    <select class="rpw-input" id="aiModelSel">
-     ${["gemini-2.0-flash","gemini-2.5-flash","gemini-2.0-flash-lite"].map(x=>`<option ${x===AI.model?"selected":""}>${x}</option>`).join("")}
-    </select></div>
-   <p class="tiny muted">Get a free key at aistudio.google.com/apikey. Apps stay fully usable offline without a key.</p>
-   <div class="row spread mt-2"><button class="rpw-btn ghost" id="aiClear">Clear key</button><button class="rpw-btn primary" id="aiSave">Save</button></div>`,
+/* ---------- AI Settings (multi-provider, with live test) ---------- */
+function settingsModal(after){
+ const m=modal("⚙️ AI Settings — Providers & Keys",
+  `<div class="ai-tabs" id="aiProvTabs">${Object.entries(PROVIDERS).map(([id,p])=>
+   `<button class="ai-tab ${id===CFG.provider?"on":""}" data-p="${id}">${p.name}${hasKey(id)?" ✓":""}</button>`).join("")}</div>
+   <div id="aiProvBody"></div>
+   <p class="tiny muted">Keys are stored only in this browser (localStorage) and sent directly to the provider you choose. Without a key, apps use the built-in offline smart generator.</p>`,
   bd=>{
-   bd.querySelector("#aiSave").onclick=()=>{AI.setKey(bd.querySelector("#aiKeyInp").value);AI.setModel(bd.querySelector("#aiModelSel").value);toast(AI.key?"API key saved ✨":"Key cleared — offline mode","ok");m.close();after&&after();};
-   bd.querySelector("#aiClear").onclick=()=>{AI.setKey("");bd.querySelector("#aiKeyInp").value="";toast("Key cleared","info");};
+   function paint(){
+    const p=CFG.provider,P=PROVIDERS[p];
+    bd.querySelector("#aiProvBody").innerHTML=
+     `<div class="ai-row"><label>API key <span class="muted">(${P.link})</span></label>
+       <div class="row" style="gap:8px"><input class="rpw-input grow" id="aiKeyInp" type="password" placeholder="${P.keyph}" value="${escapeHtml(CFG.keys[p]||"")}">
+       <button class="rpw-btn sm" id="aiTest">Test</button></div>
+       <div class="ai-test-out" id="aiTestOut"></div></div>
+      ${p==="custom"?`<div class="ai-row"><label>Base URL (OpenAI-compatible, incl. /v1)</label>
+       <input class="rpw-input" id="aiBase" placeholder="https://host.example/v1" value="${escapeHtml(CFG.baseUrl||"")}"></div>`:""}
+      <div class="ai-row"><label>Model</label><div class="row" style="gap:8px">
+       ${P.models.length?`<select class="rpw-input grow" id="aiModelSel">${P.models.map(x=>`<option value="${escapeHtml(x)}" ${x===model()?"selected":""}>${escapeHtml(x)}</option>`).join("")}</select>`:""}
+       <input class="rpw-input grow" id="aiModelCustom" placeholder="or type model id" value="${escapeHtml(model())}"></div></div>
+      <div class="row spread mt-2"><button class="rpw-btn ghost danger" id="aiClearKey">Remove key</button>
+       <button class="rpw-btn primary" id="aiSaveCfg">Save & activate</button></div>`;
+    bd.querySelectorAll("#aiProvTabs .ai-tab").forEach(b=>b.classList.toggle("on",b.dataset.p===p));
+    bd.querySelectorAll("#aiProvTabs .ai-tab").forEach(b=>b.onclick=()=>{CFG.provider=b.dataset.p;store.set("ai.provider",CFG.provider);paint();});
+    const tout=bd.querySelector("#aiTestOut");
+    bd.querySelector("#aiTest").onclick=async()=>{
+     saveFields();
+     if(!hasKey()){tout.style.display="block";tout.style.color="#ff9bad";tout.textContent="Enter a key first.";return;}
+     tout.style.display="block";tout.style.color="#9aa7c7";tout.innerHTML='<span class="ai-spin"></span>Pinging '+PROVIDERS[p].name+" · "+model()+" …";
+     const t0=performance.now();
+     try{
+      const r=await callLLM("Reply with exactly: OK",{temperature:0,maxTokens:10});
+      tout.style.color="#7ef9d2";tout.textContent="✔ "+PROVIDERS[p].name+" responded in "+Math.round(performance.now()-t0)+" ms → "+JSON.stringify(r.slice(0,40));
+     }catch(e){tout.style.color="#ff9bad";tout.textContent="✖ "+e.message;}
+    };
+    function saveFields(){
+     CFG.keys[p]=bd.querySelector("#aiKeyInp").value.trim();
+     const sel=bd.querySelector("#aiModelSel"),cus=bd.querySelector("#aiModelCustom");
+     CFG.models[p]=(cus&&cus.value.trim())||(sel?sel.value:"")||CFG.defaults[p]||"";
+     const baseEl=bd.querySelector("#aiBase");if(baseEl)CFG.baseUrl=baseEl.value.trim();
+    }
+    bd.querySelector("#aiSaveCfg").onclick=()=>{
+     saveFields();store.set("ai.keys",CFG.keys);store.set("ai.models",CFG.models);store.set("ai.baseUrl",CFG.baseUrl);
+     toast(hasKey()?("Active engine: "+PROVIDERS[CFG.provider].name+" · "+model()):"Saved — no key set (offline mode)","ok");
+     m.close();after&&after();
+    };
+    bd.querySelector("#aiClearKey").onclick=()=>{delete CFG.keys[p];store.set("ai.keys",CFG.keys);paint();toast("Key removed for "+PROVIDERS[p].name,"info");};
+   }
+   paint();
   });
+ return m;
+}
+const keyModal=settingsModal;
+
+/* ---------- engine status helpers ---------- */
+function activeLabel(){return hasKey()?PROVIDERS[CFG.provider].name+" · "+model():"Offline smart generator";}
+function refreshEngineLabels(root){
+ document.querySelectorAll(".ai-status b").forEach(b=>{if(b.id==="aiEng")b.textContent=activeLabel();});
 }
 
 /* ---------- AI Studio modal ---------- */
 function studio(opts){
- // opts: {title,subtitle,fields,hint,buildPrompt(v),offline(v),validate(d),onData(data,source,close),preview(d)->html}
  const fields=opts.fields||[];
  const m=modal(`${opts.title||"✨ AI Generator"}`,
-  `<p class="muted small" style="margin-top:-4px">${opts.subtitle||"Generate material with Gemini (your key) or the built-in smart generator."}</p>
-   <div class="ai-status"><span>Engine: <b id="aiEng">${AI.key?("Gemini · "+AI.model):"Offline smart generator"}</b></span>
-    <button class="rpw-btn sm ghost" id="aiCfg">${AI.key?"Change":"Add key"}</button></div>
+  `<p class="muted small" style="margin-top:-4px">${opts.subtitle||"Generate material with your AI provider or the built-in smart generator."}</p>
+   <div class="ai-status"><span>Engine: <b id="aiEng">${activeLabel()}</b></span>
+    <span class="row" style="gap:6px"><button class="rpw-btn sm ghost" id="aiCfg">${hasKey()?"Switch / test":"Add API key"}</button></span></div>
    ${fields.map(f=>{
      const ctl=f.type==="select"
       ?`<select class="rpw-input" data-f="${f.id}">${(f.options||[]).map(o=>`<option value="${escapeHtml(o.v??o)}" ${String(o.v??o)===String(f.value)?"selected":""}>${escapeHtml(o.t??o)}</option>`).join("")}</select>`
@@ -184,7 +257,7 @@ function studio(opts){
     <div class="row spread mt-2"><button class="rpw-btn ghost" id="aiAgain">↻ Regenerate</button>
      <button class="rpw-btn primary" id="aiUse">✔ Use this</button></div></div>`,
   bd=>{
-   bd.querySelector("#aiCfg").onclick=()=>keyModal(()=>{bd.querySelector("#aiEng").textContent=AI.key?("Gemini · "+AI.model):"Offline smart generator";bd.querySelector("#aiCfg").textContent=AI.key?"Change":"Add key";});
+   bd.querySelector("#aiCfg").onclick=()=>settingsModal(()=>refreshEngineLabels(bd));
    const vals=()=>{const v={};bd.querySelectorAll("[data-f]").forEach(el=>v[el.dataset.f]=el.value.trim());return v;};
    let last=null,lastSrc="";
    async function run(){
@@ -196,8 +269,8 @@ function studio(opts){
      last=r.data;lastSrc=r.source;
      bd.querySelector("#aiOut").innerHTML=opts.preview?opts.preview(r.data):'<pre style="white-space:pre-wrap;margin:0">'+escapeHtml(JSON.stringify(r.data,null,1))+'</pre>';
      const badge=bd.querySelector("#aiSrcBadge");badge.style.display="inline-flex";
-     badge.className="ai-badge "+(r.source==="gemini"?"gemini":"offline");
-     badge.textContent=r.source==="gemini"?"◆ Gemini live":"◈ Smart generator";
+     badge.className="ai-badge "+(r.source==="offline"?"offline":"live");
+     badge.textContent=r.source==="offline"?"◈ Smart generator":"◆ "+(PROVIDERS[r.source]?PROVIDERS[r.source].name:r.source);
      bd.querySelector("#aiOutWrap").style.display="block";
     }catch(err){toast(err.message||"Generation failed","err");}
     btn.disabled=false;btn.textContent="✨ Generate";
@@ -218,6 +291,10 @@ function attachFab(onClick,label){
  return b;
 }
 
-RPW2.AI={AI,gemini,generate,keyModal,studio,attachFab,
- gen:{rng,pick,shuf,kw,T,gloss,mcq,cloze,shortQA,objectives,outline}};
+RPW2.AI={
+ AI:{get key(){return CFG.keys[CFG.provider]||"";},cfg:CFG,providers:PROVIDERS},
+ PROVIDERS,CFG,callLLM,extractJSON,generate,settingsModal,keyModal,studio,attachFab,
+ hasKey,model,activeLabel,
+ gen:Object.assign({rng,pick,shuf,kw,T,gloss},gen)
+};
 })();

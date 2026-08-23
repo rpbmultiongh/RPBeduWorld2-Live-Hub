@@ -86,6 +86,7 @@
 <footer class="rpw-footer">Playables Arcade · part of <b>RPBeduWorld2</b> · learn by building 🕹️</footer>
 <script src="../../shared/rpw2.js"></script>
 <script src="../../shared/rpw2ai.js"></script>
+<script src="../../shared/rpw2support.js"></script>
 <script>
 (function(){
 "use strict";
@@ -196,7 +197,7 @@ function drawShape(c,shape,r){
 
 /* ---------- world select ---------- */
 function drawMini(cv,w){
- c=cv.getContext("2d");c.clearRect(0,0,cv.width,cv.height);
+ const c=cv.getContext("2d");c.clearRect(0,0,cv.width,cv.height);
  for(let i=0;i<16;i++){c.globalAlpha=.05+((i*37)%40)/160;c.fillStyle="#fff";c.fillRect((i*97)%cv.width,(i*61)%cv.height,2,2);}
  c.globalAlpha=.9;c.fillStyle=w.hue;c.shadowColor=w.hue;c.shadowBlur=24;
  c.save();c.translate(cv.width-58,cv.height-50);drawShape(c,w.shape,36);c.restore();

@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark" style="--app-hue1:#7c3aed;--app-hue2:#00cec9">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI Playground · RPBeduWorld2</title>
+<meta name="description" content="Test AI providers, models and prompts — the RPBeduWorld2 generation testing ground.">
+<link rel="icon" href="../../shared/favicon.svg">
+<link rel="stylesheet" href="../../shared/rpw2.css">
+<style>
+ .pg-wrap{display:grid;grid-template-columns:minmax(280px,380px) 1fr;gap:16px;align-items:start}
+ @media(max-width:860px){.pg-wrap{grid-template-columns:1fr}}
+ .pg-card{background:var(--panel);border:1px solid var(--glass-brd);border-radius:16px;padding:16px}
+ .pg-out{min-height:220px;white-space:pre-wrap;font-size:13.5px;line-height:1.6}
+ .pg-mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px}
+ .pg-metrics{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+ .pg-chip{font-size:11px;padding:3px 10px;border-radius:99px;border:1px solid var(--glass-brd);color:var(--muted)}
+ #pgResp.err{color:#ff9bad}
+ .pg-hist{max-height:180px;overflow:auto;display:flex;flex-direction:column;gap:6px;margin-top:8px}
+ .pg-hitem{padding:8px 10px;border-radius:10px;background:rgba(255,255,255,.04);border-left:3px solid var(--app-hue1);cursor:pointer;font-size:12px}
+ .pg-hitem:hover{background:rgba(255,255,255,.08)}
+ input[type=range]{accent-color:#00cec9;width:100%}
+</style>
+</head>
+<body>
+<header class="rpw-topbar">
+  <a class="rpw-home" href="../../index.html"><b>⬡ RPW²</b></a>
+  <div class="rpw-app-title"></div>
+  <div class="rpw-topbar-actions"><button class="rpw-theme-toggle" aria-label="Toggle theme"></button></div>
+</header>
+<main class="rpw-container">
+ <section class="rpw-hero rpw-rise">
+   <h1>AI <span class="grad">Playground</span></h1>
+   <p>The suite's testing ground: pick a provider &amp; model with your own key (BYOK), tune parameters, run prompts and inspect raw output.</p>
+ </section>
+
+ <div class="pg-wrap">
+  <!-- LEFT: configuration -->
+  <div class="pg-card">
+    <div class="ai-status"><span>Engine: <b id="engLbl"></b></span>
+      <button class="rpw-btn sm ghost" id="btnSettings">⚙️ Settings</button></div>
+    <div class="ai-row"><label>Provider</label>
+      <select class="rpw-input" id="provSel"></select></div>
+    <div class="ai-row" id="baseRow" style="display:none"><label>Custom base URL</label>
+      <input class="rpw-input pg-mono" id="baseUrl" placeholder="https://host.example/v1"></div>
+    <div class="ai-row"><label>Model</label>
+      <input class="rpw-input pg-mono" id="modelInp" list="modelList" placeholder="model-id">
+      <datalist id="modelList"></datalist></div>
+    <div class="ai-grid2">
+      <div class="ai-row"><label>Temperature · <span id="tempVal">0.9</span></label>
+        <input type="range" id="tempRange" min="0" max="2" step="0.05" value="0.9"></div>
+      <div class="ai-row"><label>Max tokens</label>
+        <input class="rpw-input" type="number" id="maxTok" value="1024" min="32" max="8192"></div>
+    </div>
+    <div class="ai-row"><label>JSON mode (auto-extract)</label>
+      <select class="rpw-input" id="jsonMode"><option value="no">Off — show raw text</option><option value="yes">On — parse JSON from reply</option></select></div>
+    <button class="rpw-btn sm ghost" id="btnSaveCfg" style="width:100%">💾 Save as active engine</button>
+
+    <hr style="border:none;border-top:1px solid var(--glass-brd);margin:14px 0">
+    <b class="small">Prompt presets</b>
+    <div class="row wrap mt-2" style="gap:6px" id="presets">
+      <button class="rpw-btn sm ghost" data-pre='flashcards'>flashcards</button>
+      <button class="rpw-btn sm ghost" data-pre='quiz'>quiz</button>
+      <button class="rpw-btn sm ghost" data-pre='lesson'>lesson plan</button>
+      <button class="rpw-btn sm ghost" data-pre='summarize'>summarizer</button>
+    </div>
+  </div>
+
+  <!-- RIGHT: run area -->
+  <div class="pg-card">
+    <div class="ai-row"><label>System prompt (optional)</label>
+      <textarea class="rpw-input" rows="2" id="sysP" placeholder="You are a helpful study-assistant for teachers and students…"></textarea></div>
+    <div class="ai-row"><label>Your prompt</label>
+      <textarea class="rpw-input" rows="5" id="userP" placeholder="Ask anything, or paste a JSON-generation instruction like the ones used inside the apps…"></textarea></div>
+    <div class="row spread">
+      <span class="tiny muted" id="hintLbl"></span>
+      <div class="row" style="gap:8px">
+        <button class="rpw-btn ghost" id="btnCopy">⧉ Copy result</button>
+        <button class="rpw-btn primary" id="btnRun">▶ Run</button>
+      </div>
+    </div>
+    <div class="ai-out pg-out mt-2" id="pgResp" style="margin-top:12px">Run a prompt to see the raw model response here…</div>
+    <div class="pg-metrics" id="metrics"></div>
+
+    <b class="small mt-3">History <span class="tiny muted">(last 12 · click to restore)</span></b>
+    <div class="pg-hist" id="histBox"></div>
+  </div>
+ </div>
+</main>
+<footer class="rpw-footer">AI Playground · part of <b>RPBeduWorld2</b> · keys stay in your browser 🔒</footer>
+<script src="../../shared/rpw2.js"></script>
+<script src="../../shared/rpw2ai.js"></script>
+<script src="../../shared/rpw2support.js"></script>
+<script>
+(function(){
+"use strict";
+const $=s=>document.querySelector(s);
+RPW2.initTopbar("AI Playground","sparkles");
+const {PROVIDERS,CFG}=RPW2.AI;
+
+/* ---------- config controls ---------- */
+const provSel=$("#provSel");
+provSel.innerHTML=Object.entries(PROVIDERS).map(([id,p])=>
+ `<option value="${id}" ${id===CFG.provider?"selected":""}>${p.name}${RPW2.AI.hasKey(id)?"  ✓":""}</option>`).join("");
+function paintProv(){
+ const p=provSel.value,P=PROVIDERS[p];
+ $("#baseRow").style.display=p==="custom"?"block":"none";
+ $("#modelList").innerHTML=P.models.map(m=>`<option value="${m}">`).join("");
+ if(!$("#modelInp").value.trim()||$("#modelInp").dataset.forp!==p){
+   $("#modelInp").value=(CFG.models[p]||CFG.defaults[p]||"");
+   $("#modelInp").dataset.forp=p;
+ }
+ const key=CFG.keys[p]||"";
+ $("#hintLbl").textContent=key?("Key loaded ✓ — requests go to "+P.name):("No key for "+P.name+" yet → ⚙️ Settings (offline generators still work in apps)");
+ paintEng();
+}
+function paintEng(){ $("#engLbl").textContent=RPW2.AI.activeLabel(); }
+provSel.onchange=paintProv;
+$("#baseUrl").value=CFG.baseUrl||"";
+$("#tempRange").oninput=e=>$("#tempVal").textContent=e.target.value;
+paintProv();
+
+$("#btnSettings").onclick=()=>RPW2.AI.settingsModal(()=>{paintProv();paintEng();
+ provSel.innerHTML=Object.entries(PROVIDERS).map(([id,p])=>`<option value="${id}" ${id===CFG.provider?"selected":""}>${p.name}${RPW2.AI.hasKey(id)?"  ✓":""}</option>`).join("");paintProv();});
+$("#btnSaveCfg").onclick=()=>{
+ const p=provSel.value;
+ CFG.provider=p;CFG.keys[p]=((CFG.keys[p]||"")); // key managed in settings
+ CFG.models[p]=$("#modelInp").value.trim()||CFG.defaults[p]||"";
+ CFG.baseUrl=$("#baseUrl").value.trim();
+ RPW2.store.set("ai.provider",p);RPW2.store.set("ai.models",CFG.models);RPW2.store.set("ai.baseUrl",CFG.baseUrl);
+ RPW2.toast("Active engine saved: "+PROVIDERS[p].name+" · "+(CFG.models[p]||"—"),"ok");paintEng();
+};
+
+/* ---------- presets ---------- */
+const PRESETS={
+ flashcards:{u:'Create 5 flashcards about "Photosynthesis". Respond ONLY with a JSON array of {"front":"...","back":"..."}.',s:"You are an expert educator.",j:"yes"},
+ quiz:{u:'Write 4 multiple-choice questions about "World War II causes". Respond ONLY as JSON array of {"q":"...","answer":"...","wrongs":["","",""]}.',s:"You are an expert educator.",j:"yes"},
+ lesson:{u:'Draft a mini lesson plan on "Supply and demand": objectives, hook, direct instruction, practice, exit ticket.',s:"You are a curriculum designer.",j:"no"},
+ summarize:{u:'Summarize: Photosynthesis converts light energy into chemical energy stored in glucose. Chlorophyll absorbs light, water is split, oxygen is released, and carbon dioxide is fixed into sugars.',s:"",j:"no"}
+};
+document.querySelectorAll("#presets [data-pre]").forEach(b=>{
+ b.onclick=()=>{const k=b.dataset.pre,p=PRESETS[k];
+  $("#userP").value=p.u;$("#sysP").value=p.s;$("#jsonMode").value=p.j;};
+});
+
+/* ---------- history ---------- */
+const HK="rpw2.ai.playground.history";
+let hist=RPW2.store.get(HK,[]);
+function paintHist(){
+ $("#histBox").innerHTML=hist.length?hist.map((h,i)=>
+  `<div class="pg-hitem" data-i="${i}"><b>${h.provider}·${h.model}</b> <span class="tiny muted">${h.ms}ms</span><br><span class="muted">${String(h.prompt).slice(0,80).replace(/</g,"&lt;")}…</span></div>`).join("")
+  :'<span class="tiny muted">No runs yet.</span>';
+ document.querySelectorAll(".pg-hitem").forEach(el=>el.onclick=()=>{
+  const h=hist[+el.dataset.i];
+  $("#userP").value=h.prompt;$("#sysP").value=h.sys||"";
+  $("#pgResp").textContent=h.resp;$("#pgResp").className="ai-out pg-out"+(h.err?" err":"");
+  $("#metrics").innerHTML=`<span class="pg-chip">${h.provider}</span><span class="pg-chip">${h.model}</span><span class="pg-chip">${h.ms} ms</span>`;
+ });
+}
+paintHist();
+
+/* ---------- run ---------- */
+let lastResp="";
+async function run(){
+ const btn=$("#btnRun");btn.disabled=true;btn.innerHTML='<span class="ai-spin"></span>Running…';
+ const resp=$("#pgResp");resp.className="ai-out pg-out";resp.textContent="Thinking…";
+ $("#metrics").innerHTML="";
+ const t0=performance.now(),p=provSel.value;
+ try{
+  const txt=await RPW2.AI.callLLM($("#userP").value,{
+   provider:p,model:$("#modelInp").value.trim()||undefined,
+   system:$("#sysP").value.trim()||undefined,
+   temperature:+$("#tempRange").value,maxTokens:+$("#maxTok").value||1024});
+  const ms=Math.round(performance.now()-t0);
+  let out=txt;
+  if($("#jsonMode").value==="yes"){
+   try{out=JSON.stringify(RPW2.AI.extractJSON(txt),null,2);}catch(e){out+="\n\n⚠ Could not parse JSON ("+e.message+") — showing raw.";}
+  }
+  resp.textContent=out;lastResp=out;
+  $("#metrics").innerHTML=`<span class="pg-chip">${PROVIDERS[p].name}</span><span class="pg-chip pg-mono">${$("#modelInp").value.trim()}</span><span class="pg-chip">${ms} ms</span><span class="pg-chip">${txt.length} chars</span>`;
+  hist.unshift({provider:p,model:$("#modelInp").value.trim(),ms,prompt:$("#userP").value.slice(0,400),sys:$("#sysP").value.slice(0,300),resp:out.slice(0,4000),err:false});
+ }catch(e){
+  const ms=Math.round(performance.now()-t0);
+  resp.className="ai-out pg-out err";resp.textContent="✖ "+e.message+"\n\nTips:\n• Check the key & model id in ⚙️ Settings\n• Free tiers rate-limit — wait and retry\n• OpenRouter lists models ending in \":free\"";
+  $("#metrics").innerHTML=`<span class="pg-chip">${PROVIDERS[p].name}</span><span class="pg-chip">${ms} ms</span><span class="pg-chip">failed</span>`;
+  hist.unshift({provider:p,model:$("#modelInp").value.trim(),ms,prompt:$("#userP").value.slice(0,400),sys:"",resp:e.message,err:true});
+ }
+ hist=hist.slice(0,12);RPW2.store.set(HK,hist);paintHist();
+ btn.disabled=false;btn.textContent="▶ Run";
+}
+$("#btnRun").onclick=run;
+document.addEventListener("keydown",e=>{
+ if((e.metaKey||e.ctrlKey)&&e.key==="Enter")run();
+});
+$("#btnCopy").onclick=()=>{if(lastResp){navigator.clipboard.writeText(lastResp);RPW2.toast("Result copied","ok");}};
+})();
+</script>
+</body>
+</html>

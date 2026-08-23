@@ -39,6 +39,7 @@
   <div class="rpw-topbar-actions">
     <button class="rpw-btn sm" id="btnImport">Import JSON</button>
     <button class="rpw-btn sm primary" id="btnNewDeck">New Deck</button>
+    <button class="rpw-btn sm" id="btnAiDeck" style="background:linear-gradient(135deg,#7c3aed,#00cec9);border:none;color:#fff;font-weight:700">✨ AI Deck</button>
     <button class="rpw-theme-toggle" aria-label="Toggle theme"></button>
   </div>
 </header>
@@ -117,6 +118,7 @@
 <footer class="rpw-footer">FlashAI Supreme · part of <b>RPBeduWorld2</b> suite · your data stays in your browser</footer>
 <script src="../../shared/rpw2.js"></script>
 <script src="../../shared/rpw2ai.js"></script>
+<script src="../../shared/rpw2support.js"></script>
 <script>
 (function(){
 "use strict";
@@ -477,10 +479,9 @@ document.addEventListener("keydown",e=>{
   if(study&&study.flipped&&["1","2","3","4"].includes(e.key))grade(+e.key-1);
 });
 addEventListener("resize",()=>{if(view==="decks")renderWeekChart();});
-show("decks");
 
 /* ================= AI STUDIO — deck generator ================= */
-RPW2.AI.attachFab(()=>RPW2.AI.studio({
+function openAIDeckForge(){return RPW2.AI.studio({
  title:"✨ AI Flashcard Forge",
  subtitle:"Generate a full deck on any topic — Gemini (your key) or the offline smart generator.",
  fields:[
@@ -509,7 +510,11 @@ RPW2.AI.attachFab(()=>RPW2.AI.studio({
   save();show("decks");toast(`Deck created with ${d.length} cards (${src==="gemini"?"Gemini":"smart generator"})`,"ok");
   RPW2.confetti&&RPW2.confetti();close();
  }
-}));
+});}
+RPW2.AI.attachFab(()=>openAIDeckForge());
+$("#btnAiDeck").onclick=()=>openAIDeckForge();
+
+show("decks");
 })();
 </script>
 </body>

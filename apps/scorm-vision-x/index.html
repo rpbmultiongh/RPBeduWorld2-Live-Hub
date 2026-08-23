@@ -75,9 +75,11 @@
 <script src="../../shared/vendor/jszip.min.js"></script>
 <script src="../../shared/rpw2.js"></script>
 <script src="../../shared/rpw2ai.js"></script>
+<script src="../../shared/rpw2support.js"></script>
 <script>
 (function(){
 "use strict";
+const esc=s=>String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"})[c]);
 const $=s=>document.querySelector(s);
 RPW2.initTopbar("SCORM Vision X","eye");
 

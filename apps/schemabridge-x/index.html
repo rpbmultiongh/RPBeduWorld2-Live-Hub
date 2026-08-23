@@ -74,9 +74,11 @@
 <footer class="rpw-footer">SchemaBridge X · part of <b>RPBeduWorld2</b> · one format to rule them all</footer>
 <script src="../../shared/rpw2.js"></script>
 <script src="../../shared/rpw2ai.js"></script>
+<script src="../../shared/rpw2support.js"></script>
 <script>
 (function(){
 "use strict";
+const esc=s=>String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"})[c]);
 const $=s=>document.querySelector(s);
 RPW2.initTopbar("SchemaBridge X","code");
 
