@@ -74,6 +74,7 @@
 </main>
 <footer class="rpw-footer">Tutorial Studio · part of <b>RPBeduWorld2</b> · autosaved locally · exports standalone HTML</footer>
 <script src="../../shared/rpw2.js"></script>
+<script src="../../shared/rpw2ai.js"></script>
 <script>
 (function(){
 "use strict";
@@ -278,6 +279,52 @@ $("#btnExport").onclick=()=>{
 function slugify(s){return String(s).toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,"")||"tutorial";}
 
 paintAll();
+
+/* ================= AI STUDIO — tutorial generator ================= */
+RPW2.AI.attachFab(()=>RPW2.AI.studio({
+ title:"✨ AI Tutorial Writer",
+ subtitle:"Generate a full slide deck with checkpoint quizzes on any topic, appended to this tutorial.",
+ fields:[
+  {id:"topic",label:"Tutorial topic",placeholder:"e.g. Photosynthesis lab safety, CSS flexbox, Essay structure"},
+  {id:"slides",label:"Slides",type:"number",value:5,min:3,max:8},
+  {id:"quiz",label:"Checkpoint quiz per slide",type:"select",options:[{v:"yes",t:"Yes (1 question)"},{v:"no",t:"No quiz"}]}
+ ],
+ buildPrompt:v=>{
+  const qline=v.quiz==="yes"
+   ?'Each slide object also includes "quiz":[{"q":"...","options":["a","b","c"],"answer":0}] with exactly one question.'
+   :"Omit quiz fields entirely.";
+  return `Create a ${v.slides}-slide tutorial about "${v.topic}". Respond ONLY as JSON {"slides":[{"title":"...","body":"<p>...</p> HTML, 60-120 words"}]}. ${qline}`;
+ },
+ offline:v=>{
+  const g=RPW2.AI.gen,r=g.rng(v.topic+Math.random()),n=Math.min(8,Math.max(3,+v.slides||5));
+  const secs=g.outline(v.topic,n,r),t=g.T(v.topic);
+  return {slides:secs.map((s,i)=>{
+   const m=g.mcq(v.topic+" "+s,r),pair=g.shortQA(v.topic+" "+s,r).pairs[i%4];
+   const sl={title:(i===0?t:s),body:i===0
+     ?`<p><b>Welcome.</b> This tutorial covers <b>${esc(t)}</b> in ${n} short slides.</p><p>${g.gloss(v.topic)||"Each slide ends with a quick self-check to lock the idea in."}</p>`
+     :`<h3>${esc(s)}</h3><p>${g.gloss(v.topic)?g.gloss(v.topic):("Focus on how <b>"+esc(s.toLowerCase())+"</b> fits into "+esc(t)+" — read, then try the checkpoint below.")}</p><ul><li>${esc(g.objectives(v.topic,2,r)[0])}</li></ul>`,
+     quiz:[],pairs:[],quizRequired:false};
+   if(v.quiz==="yes")sl.quiz=[{q:m.q,options:m.options,answer:m.answer}];
+   return sl;
+  })};
+ },
+ preview:d=>(d.slides||[]).map((s,i)=>`<div class="ai-item"><b>${i+1}. ${RPW2.escapeHtml(s.title||"")}</b>${(s.quiz&&s.quiz.length)?' <span class="tiny">· 1 checkpoint</span>':""}<br><span class="muted tiny">${RPW2.escapeHtml(String(s.body||"").replace(/<[^>]+>/g," ").slice(0,120))}…</span></div>`).join(""),
+ validate:d=>{
+  d=d.tutorial||d;
+  const arr=(d.slides||[]).map(s=>({title:String(s.title||"Slide"),body:String(s.body||s.html||"<p></p>"),
+   quiz:(s.quiz||[]).map(q=>({q:String(q.q),options:(q.options||[]).map(String),answer:+q.answer||0})),
+   pairs:[],quizRequired:false}));
+  if(!arr.length)throw new Error("No slides generated");
+  return {slides:arr};
+ },
+ onData:(d,src,close)=>{
+  snapshot();
+  tut.slides=tut.slides.concat(d.slides);
+  persist();paintAll();close();
+  toast(`${d.slides.length} slides appended (${src==="gemini"?"Gemini":"smart generator"})`,"ok");
+  RPW2.confetti&&RPW2.confetti();
+ }
+}));
 })();
 </script>
 </body>

@@ -90,6 +90,7 @@
 </main>
 <footer class="rpw-footer">LuminaVault X · part of <b>RPBeduWorld2</b> · autosaves locally, exports anywhere</footer>
 <script src="../../shared/rpw2.js"></script>
+<script src="../../shared/rpw2ai.js"></script>
 <script>
 (function(){
 "use strict";
@@ -263,6 +264,40 @@ document.addEventListener("keydown",e=>{
 });
 
 renderList();
+/* ================= AI STUDIO — note writer ================= */
+RPW2.AI.attachFab(()=>RPW2.AI.studio({
+ title:"✨ AI Note Studio",
+ subtitle:"Draft structured notes on any topic, or expand the current note with an AI continuation.",
+ fields:[
+  {id:"mode",label:"Mode",type:"select",options:[{v:"draft",t:"Draft new note"},{v:"expand",t:"Expand current note"},{v:"outline",t:"Outline only"}]},
+  {id:"topic",label:"Topic / focus",placeholder:"e.g. Photosynthesis, project retro, book summary"},
+  {id:"extra",label:"Extra instructions (optional)",type:"textarea",placeholder:"tone, length, audience…"}
+ ],
+ buildPrompt:v=>`You are a study-notes writer. Mode: ${v.mode}. Topic: "${v.topic}". Extra: ${v.extra||"-"}. Respond ONLY as JSON {"title":"...","tags":["..."],"markdown":"... markdown body ..."}. Use headings, bullets and bold. 250-400 words.`,
+ offline:v=>{
+  const g=RPW2.AI.gen,r=g.rng(v.topic+Math.random()),cur=current();
+  const topic=v.topic||(cur?strip(cur.body).split(/[.!]/)[0]||"this note":"this note");
+  if(v.mode==="outline"){
+   const ol=g.outline(topic,6,r).map(s=>"- "+s).join("\n");
+   return {title:"Outline: "+g.T(topic),tags:["outline"],markdown:ol};
+  }
+  const src=v.mode==="expand"&&cur?(cur.body+"\n\n").slice(0,600):"";
+  const obj=g.objectives(topic,4,r),pairs=g.shortQA(topic,r).pairs,m=g.mcq(topic,r);
+  const md=[`## Key points`,`- ${obj[0]}`,`- ${obj[1]}`,`- ${g.gloss(topic)||("Understanding `"+topic+"` connects core ideas to practical examples.")}`,"",
+   `## Deep dive`,`${g.gloss(topic)||("The essential question: how do the parts of "+topic.toLowerCase()+" interact to produce the outcomes we observe?")} Work through one concrete example, then explain it back in your own words.`,"",
+   `## Self-check questions`,...pairs.slice(0,3).map((p,i)=>`${i+1}. **${p[0]}**\n   > ${p[1]}`),"",
+   `## Quick quiz`,`${m.q}`,m.options.map(o=>"- "+o).join("\n"),"",
+   src?`## Source notes\n${src.trim()}`:`_Generated ✨ — edit freely._`].join("\n");
+  return {title:(v.mode==="expand"?"Expansion: ":"")+g.T(topic),tags:["ai","smart-gen"],markdown:md};
+ },
+ preview:d=>`<b>${RPW2.escapeHtml(d.title)}</b> <span class="tiny muted">${(d.tags||[]).map(t=>"#"+t).join(" ")}</span><pre style="white-space:pre-wrap;margin:6px 0 0;font-size:12px">${RPW2.escapeHtml(String(d.markdown).slice(0,900))}</pre>`,
+ validate:d=>({title:d.title||"AI note",tags:Array.isArray(d.tags)?d.tags.map(String):["ai"],markdown:d.markdown||d.body||d.content||""}),
+ onData:(d,src,close)=>{
+  const n={id:RPW2.uid(),title:d.title,body:d.markdown,tags:d.tags,created:new Date().toISOString(),updated:new Date().toISOString(),pinned:false};
+  notes.unshift(n);save();openNote(n.id);renderList();
+  toast(`Note drafted (${src==="gemini"?"Gemini":"smart generator"})`,"ok");close();
+ }
+}));
 })();
 </script>
 </body>

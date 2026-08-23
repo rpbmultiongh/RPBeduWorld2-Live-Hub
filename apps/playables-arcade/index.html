@@ -85,6 +85,7 @@
 </main>
 <footer class="rpw-footer">Playables Arcade · part of <b>RPBeduWorld2</b> · learn by building 🕹️</footer>
 <script src="../../shared/rpw2.js"></script>
+<script src="../../shared/rpw2ai.js"></script>
 <script>
 (function(){
 "use strict";
@@ -349,6 +350,43 @@ muteBtn.addEventListener("click",()=>{const m=RPW2.sfx.toggleMute();paintMute();
 paintMute();
 
 /* ---------- boot ---------- */
+const K_AI_WORLDS="rpw2.arcade.customWorlds";
+try{(RPW2.store.get(K_AI_WORLDS,[])||[]).forEach(w=>WORLDS.push(w));}catch(e){}
+RPW2.AI.attachFab(()=>RPW2.AI.studio({
+ title:"✨ AI World Forge",
+ subtitle:"Forge a brand-new playable world on any topic — 8 questions become 8 build stages.",
+ fields:[
+  {id:"topic",label:"World topic",placeholder:"e.g. Roman history, JavaScript basics, Ocean life"},
+  {id:"ico",label:"Emoji",value:"🌟"},
+  {id:"hue",label:"Glow color",type:"select",options:[{v:"#00cec9",t:"Teal"},{v:"#fd79a8",t:"Pink"},{v:"#ffeaa7",t:"Amber"},{v:"#74b9ff",t:"Blue"},{v:"#55efc4",t:"Mint"}]}
+ ],
+ buildPrompt:v=>`Design a quiz world about "${v.topic}". Respond ONLY as JSON array of exactly 8 items: {"q":"question text","answer":"correct option","wrongs":["wrong1","wrong2","wrong3"]}. Educational, accurate, concise.`,
+ offline:v=>{
+  const g=RPW2.AI.gen,r=g.rng(v.topic+Math.random()),out=[];
+  for(let i=0;i<8;i++){
+   const m=g.mcq(v.topic+(i===5?" real-world applications":""),r);
+   out.push([m.q,m.options[m.answer],m.options.filter((_,j)=>j!==m.answer)]);
+  }
+  return out;
+ },
+ preview:d=>d.map(q=>`<div class="ai-item"><b>${RPW2.escapeHtml(String(q[0]).slice(0,110))}</b><br><span class="small" style="color:#2ecc71">✔ ${RPW2.escapeHtml(String(q[1]).slice(0,90))}</span></div>`).join(""),
+ validate:d=>{
+  const arr=(Array.isArray(d)?d:d.questions||[]).map(x=>[x.q||x[0],x.answer||x[1],x.wrongs||x[2]||[]]);
+  if(arr.length<4)throw new Error("Need at least 4 questions");
+  return arr.slice(0,10).map(x=>[String(x[0]),String(x[1]),(Array.isArray(x[2])?x[2]:[]).slice(0,3).map(String)]);
+ },
+ onData:(d,src,close)=>{
+  const topic=document.querySelector("[data-f=topic]").value.trim()||"Custom";
+  const w={id:"ai-"+Date.now().toString(36),name:"✨ "+g_T(topic),ico:document.querySelector("[data-f=ico]").value.slice(0,4)||"🌟",
+   hue:document.querySelector("[data-f=hue]").value||"#00cec9",desc:"AI-forged challenge on "+topic,shape:"star",qs:d};
+  WORLDS.push(w);
+  const saved=RPW2.store.get(K_AI_WORLDS,[]);saved.push(w);RPW2.store.set(K_AI_WORLDS,saved);
+  paintWorlds($("#searchW").value);show("viewWorlds");
+  toast(`World "${w.name}" forged — ${d.length} stages (${src==="gemini"?"Gemini":"smart generator"})`,"ok");
+  RPW2.confetti&&RPW2.confetti();close();
+ }
+}));
+function g_T(s){return s.length>30?s.slice(0,28)+"…":s;}
 paintWorlds();
 show("viewWorlds");
 })();

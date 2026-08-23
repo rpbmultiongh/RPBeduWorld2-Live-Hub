@@ -83,6 +83,7 @@
 </main>
 <footer class="rpw-footer">MCAT Prep X · part of <b>RPBeduWorld2</b> · study smart, score high 🩺</footer>
 <script src="../../shared/rpw2.js"></script>
+<script src="../../shared/rpw2ai.js"></script>
 <script>
 (function(){
 "use strict";
@@ -270,6 +271,43 @@ $("#btnQuitQ").onclick=async()=>{
   if(await RPW2.confirm({title:"End session?",message:"Current progress in this set will be kept.",yesLabel:"End"})){clearInterval(timerInt);show("home");paintHome();}
 };
 $("#btnResHome").onclick=()=>{show("home");paintHome();};
+
+/* ================= AI STUDIO — domain forge ================= */
+const K_AI_DOMS="mcat.customDoms";
+try{Object.entries(RPW2.store.get(K_AI_DOMS,{})).forEach(([k,v])=>{DOMS[k]=v;});}catch(e){}
+RPW2.AI.attachFab(()=>RPW2.AI.studio({
+ title:"✨ AI Domain Forge",
+ subtitle:"Forge a custom MCAT-style practice domain on any science topic.",
+ fields:[
+  {id:"topic",label:"Domain topic",placeholder:"e.g. Organic mechanisms, Genetics, Statistical reasoning"},
+  {id:"count",label:"Questions",type:"number",value:10,min:4,max:20},
+  {id:"ico",label:"Emoji",value:"🧪"}
+ ],
+ buildPrompt:v=>`Write ${v.count} MCAT-style multiple-choice questions about "${v.topic}". Respond ONLY as JSON array of {"q":"...","answer":"...","wrongs":["...","...","..."]}. Include passage-free standalone items with rigorous reasoning.`,
+ offline:v=>{
+  const g=RPW2.AI.gen,r=g.rng(v.topic+Math.random()),n=Math.min(20,Math.max(4,+v.count||10)),out=[];
+  for(let i=0;i<n;i++){
+   const m=g.mcq(v.topic+(i%3===0?" advanced applications":""),r);
+   out.push([m.q,m.options[m.answer],m.options.filter((_,j)=>j!==m.answer)]);
+  }
+  return out;
+ },
+ preview:d=>d.map(q=>`<div class="ai-item"><b>${RPW2.escapeHtml(String(q[0]).slice(0,120))}</b><br><span class="small" style="color:#2ecc71">✔ ${RPW2.escapeHtml(String(q[1]).slice(0,100))}</span></div>`).join(""),
+ validate:d=>{
+  const arr=(Array.isArray(d)?d:d.questions||[]).map(x=>[x.q||x[0],x.answer||x[1],x.wrongs||x[2]||[]]);
+  if(!arr.length)throw new Error("No questions generated");
+  return arr.map(x=>[String(x[0]),String(x[1]),(Array.isArray(x[2])?x[2]:[]).slice(0,3).map(String)]);
+ },
+ onData:(d,src,close)=>{
+  const topic=document.querySelector("[data-f=topic]").value.trim()||"Custom";
+  const name="✨ "+topic.slice(0,22)+(topic.length>22?"…":"");
+  DOMS[name]={ico:document.querySelector("[data-f=ico]").value.slice(0,4)||"🧪",qs:d};
+  const saved=RPW2.store.get(K_AI_DOMS,{});saved[name]=DOMS[name];RPW2.store.set(K_AI_DOMS,saved);
+  paintHome();show("home");
+  toast(`Domain "${name}" forged with ${d.length} questions (${src==="gemini"?"Gemini":"smart generator"})`,"ok");
+  RPW2.confetti&&RPW2.confetti();close();
+ }
+}));
 
 /* ---------- flashcards ---------- */
 let ci=0;

@@ -103,6 +103,7 @@
 </main>
 <footer class="rpw-footer">LearnMaster X · part of <b>RPBeduWorld2</b> · a full LMS that lives in your browser</footer>
 <script src="../../shared/rpw2.js"></script>
+<script src="../../shared/rpw2ai.js"></script>
 <script>
 (function(){
 "use strict";
@@ -365,6 +366,48 @@ $("#tabSelect").onchange=renderLibrary;
 $("#searchC").oninput=renderLibrary;
 function slugify(s){return String(s).toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,"")||"course";}
 show("library");renderLibrary();
+
+/* ================= AI STUDIO — course builder ================= */
+RPW2.AI.attachFab(()=>RPW2.AI.studio({
+ title:"✨ AI Course Builder",
+ subtitle:"Describe a topic — get a complete course with lessons and quizzes in one shot.",
+ fields:[
+  {id:"topic",label:"Course topic",placeholder:"e.g. Intro to Astronomy, Spanish tenses, Web security"},
+  {id:"lessons",label:"Lessons",type:"number",value:4,min:2,max:6},
+  {id:"level",label:"Level",type:"select",options:[{v:"beginner",t:"Beginner"},{v:"intermediate",t:"Intermediate"},{v:"advanced",t:"Advanced"}]}
+ ],
+ buildPrompt:v=>`Design a complete ${v.level} mini-course about "${v.topic}" with exactly ${v.lessons} lessons. Respond ONLY as JSON {"title":"...","subject":"...","emoji":"...","lessons":[{"title":"...","html":"<h3>...</h3><p>...</p> (150-250 words)","quiz":[{"q":"...","options":["a","b","c","d"],"answer":0}]} ]}. Each lesson gets 3 quiz questions.`,
+ offline:v=>{
+  const g=RPW2.AI.gen,r=g.rng(v.topic+Math.random()),n=Math.min(6,Math.max(2,+v.lessons||4));
+  const secs=g.outline(v.topic,n+1,r),t=g.T(v.topic);
+  const lessons=secs.slice(1,n+1).map((s,i)=>{
+   const m=g.mcq(v.topic+" "+s,r),m2=g.mcq(v.topic+" advanced aspects "+s,r);
+   const pair=g.shortQA(v.topic+" "+s,r).pairs[0];
+   const html=`<h3>${esc(s)}</h3><p>${g.gloss(v.topic)?g.gloss(v.topic):("This section builds your command of <b>"+esc(s.toLowerCase())+"</b> within "+esc(t)+". Read actively: pause after each paragraph and restate the idea.")}</p><h3>Key ideas</h3><ul><li>${esc(g.objectives(v.topic,3,r)[0])}</li><li>${esc(g.objectives(v.topic,3,r)[1])}</li></ul><h3>Check yourself</h3><p><i>${esc(pair[0])}</i><br>Think it through, then reveal: ${esc(pair[1].slice(0,140))}…</p>`;
+   const mk=(mm)=>({q:mm.q,options:mm.options,answer:mm.answer});
+   return {title:s,html,quiz:[mk(m),mk(m2),{q:pair[0],options:[pair[1],"A vague claim unrelated to the lesson","An unrelated historical date","None of these"],answer:0}]};
+  });
+  return {title:t,subject:v.topic.split(" ").slice(-1)[0]||"General",emoji:"✨",lessons};
+ },
+ preview:d=>`<b>${d.emoji||"📘"} ${RPW2.escapeHtml(d.title)}</b> <span class="tiny muted">${RPW2.escapeHtml(d.subject||"")}</span>`+
+  (d.lessons||[]).map((l,i)=>`<div class="ai-item"><b>${i+1}. ${RPW2.escapeHtml(l.title)}</b> · ${(l.quiz||[]).length} quiz Qs<br><span class="muted tiny">${RPW2.escapeHtml(String(l.html||l.body||"").replace(/<[^>]+>/g," ").slice(0,130))}…</span></div>`).join(""),
+ validate:d=>{
+  d=d.course||d;
+  if(!Array.isArray(d.lessons)||!d.lessons.length)throw new Error("No lessons generated");
+  return {title:d.title||"AI course",subject:d.subject||"General",emoji:(d.emoji||"✨").slice(0,4),
+   lessons:d.lessons.map(l=>({title:l.title||"Lesson",
+     body:l.html||l.body||"<p>"+String(l.content||l.text||"").slice(0,2000)+"</p>",
+     quiz:(l.quiz||[]).map(q=>({q:String(q.q),options:(q.options||[]).map(String),answer:+q.answer||0}))}))};
+ },
+ onData:(d,src,close)=>{
+  const c={id:RPW2.uid(),title:d.title,subject:d.subject,emoji:d.emoji,created:new Date().toISOString(),
+   lessons:d.lessons.map(l=>Object.assign(l,{id:RPW2.uid(),done:false,scores:[]}))};
+  courses.unshift(c);save();openCourse(c.id);close();
+  toast(`Course built: ${d.lessons.length} lessons (${src==="gemini"?"Gemini":"smart generator"})`,"ok");
+  RPW2.confetti&&RPW2.confetti();
+ }
+}));
+
 })();
 </script>
 </body>

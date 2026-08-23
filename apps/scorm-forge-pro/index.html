@@ -84,6 +84,7 @@
 <footer class="rpw-footer">SCORM Forge Pro · part of <b>RPBeduWorld2</b> · everything happens locally in your browser</footer>
 <script src="../../shared/vendor/jszip.min.js"></script>
 <script src="../../shared/rpw2.js"></script>
+<script src="../../shared/rpw2ai.js"></script>
 <script>
 (function(){
 "use strict";
@@ -266,6 +267,31 @@ function updateStatus(){
 }
 function slugify(s){return String(s).toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,"")||"package";}
 updateStatus();
+
+/* ================= AI STUDIO — metadata writer ================= */
+RPW2.AI.attachFab(()=>RPW2.AI.studio({
+ title:"✨ AI Metadata Writer",
+ subtitle:"Describe the course in a few words — get LMS-ready title, description and mastery score.",
+ fields:[
+  {id:"topic",label:"What is this course about?",placeholder:"e.g. Onboarding for warehouse staff, Cell biology unit"},
+  {id:"audience",label:"Audience (optional)",placeholder:"e.g. new employees, high-school students"}
+ ],
+ buildPrompt:v=>`Write SCORM package metadata for a course on "${v.topic}"${v.audience?(" for "+v.audience):""}. Respond ONLY as JSON {"title":"...","desc":"one or two sentence LMS catalog description","mastery":80}.`,
+ offline:v=>{
+  const g=RPW2.AI.gen,r=g.rng(v.topic+Math.random()),t=g.T(v.topic);
+  return {title:t,
+   desc:`A focused micro-course on ${v.topic.toLowerCase()}${v.audience?(" designed for "+v.audience):""}, combining clear explanations with checkpoint assessments to verify mastery.`+(g.gloss(v.topic)?" "+g.gloss(v.topic):""),
+   mastery:[70,75,80,85][Math.floor(r()*4)]};
+ },
+ preview:d=>`<div class="ai-item"><b>${RPW2.escapeHtml(d.title)}</b><br><span class="muted small">${RPW2.escapeHtml(d.desc)}</span><br><span class="tiny">Suggested mastery score: <b>${d.mastery}%</b></span></div>`,
+ validate:d=>({title:String(d.title||"Untitled Course").slice(0,120),desc:String(d.desc||d.description||"").slice(0,300),mastery:Math.min(100,Math.max(0,+d.mastery||80))}),
+ onData:(d,src,close)=>{
+  $("#fTitle").value=d.title;$("#fDesc").value=d.desc;
+  if(!$("#fMastery").value)$("#fMastery").value=d.mastery;
+  regenManifest();close();
+  toast(`Metadata written (${src==="gemini"?"Gemini":"smart generator"})`,"ok");
+ }
+}));
 })();
 </script>
 </body>

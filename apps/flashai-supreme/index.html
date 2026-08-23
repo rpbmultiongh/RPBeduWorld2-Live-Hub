@@ -116,6 +116,7 @@
 </main>
 <footer class="rpw-footer">FlashAI Supreme · part of <b>RPBeduWorld2</b> suite · your data stays in your browser</footer>
 <script src="../../shared/rpw2.js"></script>
+<script src="../../shared/rpw2ai.js"></script>
 <script>
 (function(){
 "use strict";
@@ -477,6 +478,38 @@ document.addEventListener("keydown",e=>{
 });
 addEventListener("resize",()=>{if(view==="decks")renderWeekChart();});
 show("decks");
+
+/* ================= AI STUDIO — deck generator ================= */
+RPW2.AI.attachFab(()=>RPW2.AI.studio({
+ title:"✨ AI Flashcard Forge",
+ subtitle:"Generate a full deck on any topic — Gemini (your key) or the offline smart generator.",
+ fields:[
+  {id:"topic",label:"Topic",placeholder:"e.g. Photosynthesis, French verbs, WW2 causes"},
+  {id:"count",label:"Cards",type:"number",value:10,min:4,max:30},
+  {id:"style",label:"Style",type:"select",options:[{v:"mixed",t:"Mixed (definitions, why, example)"},{v:"qa",t:"Q→A pairs"},{v:"cloze",t:"Cloze (fill-in-blank)"}]}
+ ],
+ buildPrompt:v=>`Create ${v.count} flashcards about "${v.topic}" (style: ${v.style}). Respond ONLY with a JSON array of objects {"front":"...","back":"..."}. Fronts are prompts; backs are accurate, concise answers.`,
+ offline:v=>{
+  const r=RPW2.AI.gen.rng(v.topic+Date.now()%1e6),g=RPW2.AI.gen,n=Math.min(30,Math.max(4,+v.count||10)),out=[];
+  const base=g.shortQA(v.topic,r).pairs.map(p=>({f:p[0],b:p[1]}));
+  for(let i=0;i<n;i++){
+   if(v.style==="cloze"){const c=g.cloze(v.topic,r);out.push({f:c.q,b:c.answer});}
+   else{
+    const m=g.mcq(v.topic,r),optTxt=m.options.map((o,j)=>(j===m.answer?"✔ ":"")+o).join("\n");
+    out.push(i%3===2&&v.style!=="qa"?{f:m.q+"\n(Multiple choice)",b:optTxt}:{f:i<base.length?base[i%base.length][0]:g.objectives(v.topic,1,r)[0].replace(/^(\w+)/,(w)=>"Explain how to "+w.toLowerCase()),b:i<base.length?base[i%base.length][1]:m.options[m.answer]});
+   }
+  }
+  return out.slice(0,n);
+ },
+ preview:d=>d.map(c=>`<div class="ai-item"><b>${RPW2.escapeHtml(String(c.f).slice(0,120))}</b><br><span class="muted small">${RPW2.escapeHtml(String(c.b).slice(0,180))}</span></div>`).join(""),
+ validate:d=>(Array.isArray(d)?d:d.cards||[]).map(x=>({f:x.front||x.f||x.q||"",b:x.back||x.b||x.a||""})).filter(x=>x.f&&x.b),
+ onData:(d,src,close)=>{
+  const topic=document.querySelector("[data-f=topic]")?.value||"Generated";
+  decks.push(mkDeck("✨ AI: "+topic, d.map(c=>[c.f,c.b])));
+  save();show("decks");toast(`Deck created with ${d.length} cards (${src==="gemini"?"Gemini":"smart generator"})`,"ok");
+  RPW2.confetti&&RPW2.confetti();close();
+ }
+}));
 })();
 </script>
 </body>

@@ -68,6 +68,7 @@
 </div>
 <footer class="rpw-footer">Wikimedia Scout · part of <b>RPBeduWorld2</b> · images © their authors, served via Wikimedia Commons</footer>
 <script src="../../shared/rpw2.js"></script>
+<script src="../../shared/rpw2ai.js"></script>
 <script>
 (function(){
 "use strict";
@@ -191,18 +192,46 @@ function exportRep(fmt){
     RPW2.download(slugify(title)+".report.json",JSON.stringify({schema:"rpw2.wikireport.v1",title,exported:new Date().toISOString(),images:collection},null,2),"application/json");
   } else if(fmt==="md"){
     let md="# "+title+"\n\n_Generated "+stamp+" via Wikimedia Scout (RPBeduWorld2)_\n\n";
+    const intro=RPW2.store.get("wikiscout.reportIntro","");
+    if(intro)md+=intro+"\n\n---\n\n";
     collection.forEach((c,i)=>{md+="## "+(i+1)+". "+c.title+"\n\n!["+c.title+"]("+c.full+")\n\n"+
       "- Source page: "+c.page+"\n- License: "+c.license+"\n- Author/Artist: "+c.artist+(c.desc?("\n- Description: "+c.desc):"")+"\n\n---\n\n";});
     RPW2.download(slugify(title)+".md",md,"text/markdown");
   } else {
-    let h="<!DOCTYPE html>\n<html lang=\"en\"><head><meta charset=\"UTF-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>"+esc(title)+"</title>\n<style>*{box-sizing:border-box;margin:0;padding:0}body{font-family:-apple-system,'Segoe UI',Roboto,sans-serif;line-height:1.7;color:#eaf0ff;background:linear-gradient(160deg,#0b1026,#101736)}main{max-width:900px;margin:0 auto;padding:48px 24px}h1{background:linear-gradient(95deg,#5b8cff,#38e8ff);-webkit-background-clip:text;background-clip:text;color:transparent;font-size:34px}h2{margin:1.6em 0 .4em;font-size:21px;color:#8ec9ff}img{max-width:100%;border-radius:14px;border:1px solid rgba(255,255,255,.12);box-shadow:0 14px 40px rgba(0,0,0,.4)}ul{list-style:none;margin:.6em 0}li{padding:2px 0}a{color:#38e8ff}.meta{color:#93a1c8;font-size:13px}hr{border:none;height:1px;background:rgba(255,255,255,.1);margin:2em 0}</style></head><body><main>\n<h1>"+esc(title)+"</h1>\n<p class=\"meta\">Generated "+stamp+" via Wikimedia Scout · RPBeduWorld2</p>\n";
+    let h="<!DOCTYPE html>\n<html lang=\"en\"><head><meta charset=\"UTF-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>"+esc(title)+"</title>\n<style>*{box-sizing:border-box;margin:0;padding:0}body{font-family:-apple-system,'Segoe UI',Roboto,sans-serif;line-height:1.7;color:#eaf0ff;background:linear-gradient(160deg,#0b1026,#101736)}main{max-width:900px;margin:0 auto;padding:48px 24px}h1{background:linear-gradient(95deg,#5b8cff,#38e8ff);-webkit-background-clip:text;background-clip:text;color:transparent;font-size:34px}h2{margin:1.6em 0 .4em;font-size:21px;color:#8ec9ff}img{max-width:100%;border-radius:14px;border:1px solid rgba(255,255,255,.12);box-shadow:0 14px 40px rgba(0,0,0,.4)}ul{list-style:none;margin:.6em 0}li{padding:2px 0}a{color:#38e8ff}.meta{color:#93a1c8;font-size:13px}hr{border:none;height:1px;background:rgba(255,255,255,.1);margin:2em 0}</style></head><body><main>\n<h1>"+esc(title)+"</h1>\n<p class=\"meta\">Generated "+stamp+" via Wikimedia Scout · RPBeduWorld2</p>\n"+(RPW2.store.get("wikiscout.reportIntro","")?"<p class=\"meta\">"+esc(RPW2.store.get("wikiscout.reportIntro",""))+"</p>\n":"");
     collection.forEach((c,i)=>{h+="<h2>"+(i+1)+". "+esc(c.title)+"</h2>\n<img loading=\"lazy\" src=\""+esc(c.full)+"\" alt=\""+esc(c.title)+"\">\n<ul><li>Source: <a href=\""+esc(c.page)+"\" target=\"blank\" rel=\"noopener\">Wikimedia Commons</a></li><li>License: "+esc(c.license)+"</li><li>Author: "+esc(c.artist)+"</li>"+(c.desc?"<li>"+esc(c.desc)+"</li>":"")+"</ul>\n<hr>\n";});
     h+="</main></body></html>";
     RPW2.download(slugify(title)+".html",h,"text/html");
   }
   toast("Report exported ("+fmt.toUpperCase()+")","ok");RPW2.sfx.ok();
 }
-function slugify(s){return String(s).toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,"");}
+function slugify(s){return String(s).toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,"")||"report";}
+
+/* ================= AI STUDIO — report narrator ================= */
+RPW2.AI.attachFab(()=>{
+ if(!collection.length){RPW2.toast("Pick some images into your collection first","err");return;}
+ RPW2.AI.studio({
+  title:"✨ AI Report Narrator",
+  subtitle:"Generate an introduction that will lead your exported MD/HTML image reports.",
+  fields:[
+   {id:"audience",label:"Audience",type:"select",options:[{v:"students",t:"Students"},{v:"teachers",t:"Teachers"},{v:"general",t:"General readers"}]},
+   {id:"tone",label:"Tone",type:"select",options:[{v:"curious and encouraging",t:"Friendly"},{v:"formal and precise",t:"Formal"}]}
+  ],
+  buildPrompt:v=>`Write a 60-100 word introduction for an educational image report titled "${$("#repTitle")?$("#repTitle").value.trim()||"Wikimedia Image Report":"Wikimedia Image Report"}". It contains ${collection.length} openly licensed images: ${collection.slice(0,10).map(c=>c.title).join("; ")}. Audience: ${v.audience}. Tone: ${v.tone}. Respond ONLY as JSON {"intro":"..."}.`,
+  offline:v=>{
+   const g=RPW2.AI.gen,r=g.rng(collection.map(c=>c.title).join()+Math.random());
+   const themes=collection.map(c=>g.kw(c.title)[0]).filter(Boolean).slice(0,4);
+   const focus=[...new Set(themes)].slice(0,3).join(", ");
+   return {intro:`This curated collection gathers ${collection.length} openly licensed images from Wikimedia Commons${focus?(" exploring "+focus):""}, selected for classroom reuse. Each entry lists its license and author so it can be shared with confidence — examine the details, compare the perspectives, and let the images spark questions about ${focus||"the topic"}. ${g.T(v.audience==="students"?"Learners":"Readers")} are encouraged to verify sources and follow the linked Commons pages for full-resolution files.`};
+  },
+  preview:d=>`<div class="ai-item">${RPW2.escapeHtml(String(d.intro).slice(0,600))}</div>`,
+  validate:d=>({intro:String(d.intro||d.text||"").slice(0,1200)}),
+  onData:(d,src,close)=>{
+   RPW2.store.set("wikiscout.reportIntro",d.intro);close();
+   toast(`Narration saved — it will lead your next MD/HTML export (${src==="gemini"?"Gemini":"smart generator"})`,"ok");
+  }
+ });
+});
 $("#lightbox").onclick=()=>$("#lightbox").classList.add("hidden");
 $("#btnSearch").onclick=()=>search(true);
 $("#q").addEventListener("keydown",e=>{if(e.key==="Enter")search(true);});

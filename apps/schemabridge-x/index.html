@@ -73,6 +73,7 @@
 </main>
 <footer class="rpw-footer">SchemaBridge X · part of <b>RPBeduWorld2</b> · one format to rule them all</footer>
 <script src="../../shared/rpw2.js"></script>
+<script src="../../shared/rpw2ai.js"></script>
 <script>
 (function(){
 "use strict";
@@ -275,6 +276,43 @@ $("#btnDownload").onclick=()=>{
   RPW2.download(name+"."+$("#targetSel").value+".json",$("#txtOut").value,"application/json");
   toast("File downloaded","ok");
 };
+
+/* ================= AI STUDIO — mapping advisor ================= */
+const MAPKB={
+ "Universal":{title:"Course title",lessons:[{title:"Lesson title",body:"HTML body",quiz:"[{q,options,answer}]"}]},
+ "LGAI":{course:{meta:{name:"…"},modules:[{lessons:[{content:"text"}]}]}},
+ "LMP":{lessonPlan:{objectives:"…",sections:[{heading:"…",content:"…"}]}}
+};
+RPW2.AI.attachFab(()=>RPW2.AI.studio({
+ title:"✨ AI Mapping Advisor",
+ subtitle:"Explain field mappings between course schemas and flag lossy conversions before you convert.",
+ fields:[
+  {id:"src",label:"Source schema",type:"select",options:["Universal","LGAI","LMP"]},
+  {id:"dst",label:"Target schema",type:"select",options:["LGAI","Universal","LMP"]},
+  {id:"q",label:"Specific concern (optional)",type:"textarea",placeholder:"e.g. Do quiz scores survive the conversion?"}
+ ],
+ buildPrompt:v=>`Compare the "${v.src}" and "${v.dst}" educational content schemas. Respond ONLY as JSON {"mappings":[{"from":"field path","to":"field path","lossy":true,"note":"..."}],"warnings":["..."]}. Also answer this concern as a warning: ${v.q||"none"}.`,
+ offline:v=>{
+  const s=MAPKB[v.src],d=MAPKB[v.dst];
+  return {mappings:[
+   {from:v.src+".title / name / heading",to:v.dst+".title",lossy:false,note:"Direct text copy."},
+   {from:v.src+".lessons / modules / sections",to:v.dst+".content array",lossy:!s||!d,note:"Item order preserved; nesting may flatten when depth differs."},
+   {from:"quiz [{q,options,answer}]",to:v.dst+(v.dst==="Universal"?".quiz (identical shape)":".assessment"),lossy:v.dst!=="Universal",note:"Answer index must be re-pointed after option reordering."}
+  ],warnings:[
+   v.src===v.dst?"Source and target are identical — conversion is a no-op.":null,
+   "Media references stay as URLs; embedded base64 may exceed some LMS limits.",
+   v.q?"Offline mode cannot answer custom concerns — add a Gemini key in AI settings for tailored advice.":null
+  ].filter(Boolean)};
+ },
+ preview:d=>'<b>Mappings</b>'+(d.mappings||[]).map(m=>`<div class="ai-item"><span class="tiny">${RPW2.escapeHtml(m.from)} → ${RPW2.escapeHtml(m.to)}</span>${m.lossy?' <span class="ai-badge offline">lossy</span>':' <span class="ai-badge gemini">safe</span>'}<br><span class="small muted">${RPW2.escapeHtml(m.note||"")}</span></div>`).join("")+((d.warnings||[]).length?'<b>Warnings</b><ul class="small muted">'+(d.warnings||[]).map(w=>"<li>"+RPW2.escapeHtml(String(w))+"</li>").join("")+"</ul>":""),
+ validate:d=>({mappings:Array.isArray(d)?d:(d.mappings||[]),warnings:(d.warnings||[])}),
+ onData:(d,src,close)=>{
+  close();
+  RPW2.modal("✨ Schema map "+document.querySelector("[data-f=src]").value+" → "+document.querySelector("[data-f=dst]").value+" ("+(src==="gemini"?"Gemini":"smart generator")+")",
+   '<div class="ai-out">'+(d.mappings||[]).map(m=>'<div class="ai-item"><span class="tiny">'+RPW2.escapeHtml(String(m.from))+' → '+RPW2.escapeHtml(String(m.to))+'</span> '+(m.lossy?'<span class="ai-badge offline">lossy</span>':'<span class="ai-badge gemini">safe</span>')+'<br><span class="small muted">'+RPW2.escapeHtml(String(m.note||""))+'</span></div>').join("")+
+   ((d.warnings||[]).length?'<ul class="small muted mt-2">'+(d.warnings||[]).map(w=>'<li>'+RPW2.escapeHtml(String(w))+'</li>').join('')+'</ul>':"")+'</div>');
+ }
+}));
 })();
 </script>
 </body>

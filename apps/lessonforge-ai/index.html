@@ -75,6 +75,7 @@
 </main>
 <footer class="rpw-footer">LessonForge AI · part of <b>RPBeduWorld2</b> · keys stay in your browser, never on any server</footer>
 <script src="../../shared/rpw2.js"></script>
+<script src="../../shared/rpw2ai.js"></script>
 <script>
 (function(){
 "use strict";
@@ -279,6 +280,36 @@ function stripTags(h){
   return d.textContent.replace(/\n{3,}/g,"\n\n").trim();
 }
 function slugify(s){return String(s).toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,"")||"lesson";}
+/* ================= AI STUDIO — zero-source topic forge ================= */
+RPW2.AI.attachFab(()=>RPW2.AI.studio({
+ title:"✨ AI Topic Forge",
+ subtitle:"No source text needed — describe a topic and AI writes the material, then forges the full lesson.",
+ fields:[
+  {id:"topic",label:"Lesson topic",placeholder:"e.g. Newton's laws, Supply & demand, SQL joins"},
+  {id:"depth",label:"Depth",type:"select",options:[{v:"intro",t:"Introductory"},{v:"detailed",t:"Detailed"}]}
+ ],
+ buildPrompt:v=>`Write study material (300-450 words) about "${v.topic}" at ${v.depth} level. Respond ONLY as JSON {"material":"plain text with several paragraphs"}.`,
+ offline:v=>{
+  const g=RPW2.AI.gen,r=g.rng(v.topic+Math.random()),t=g.T(v.topic),glo=g.gloss(v.topic);
+  const obj=g.objectives(v.topic,4,r),pairs=g.shortQA(v.topic,r).pairs,m1=g.mcq(v.topic,r),m2=g.mcq(v.topic+" applications",r);
+  return {material:[
+   `${t}: overview.`,
+   glo||(`${t} is best approached through its core principles. ${obj[0]} In practice, this means working from concrete examples toward general rules, then testing understanding against new cases.`),
+   `Key objectives: ${obj.join(" ")}`,
+   pairs.map(p=>p[0]+" "+p[1]).join(" "),
+   m1.options[m1.answer]+". "+m2.options[m2.answer]+".",
+   v.depth==="detailed"?`Common misconceptions: learners often treat ${v.topic.toLowerCase()} as memorization; instead, focus on transferable reasoning and structured practice.`:"Review these notes, then forge the full lesson."
+  ].join("\n\n")};
+ },
+ preview:d=>`<div class="ai-item" style="white-space:pre-wrap">${RPW2.escapeHtml(String(d.material).slice(0,800))}…</div>`,
+ validate:d=>({material:String(d.material||d.text||d.content||"")}),
+ onData:(d,src,close)=>{
+  const title=document.querySelector("[data-f=topic]").value.trim()||"AI lesson";
+  lastResult=forgeOffline(title,d.material);
+  render(lastResult);RPW2.confetti();RPW2.sfx.win();close();
+  toast(`Lesson forged (${src==="gemini"?"Gemini":"smart generator"})`,"ok");
+ }
+}));
 })();
 </script>
 </body>

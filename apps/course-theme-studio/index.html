@@ -70,6 +70,7 @@
 </main>
 <footer class="rpw-footer">Course Theme Studio · part of <b>RPBeduWorld2</b> · make every lesson beautiful</footer>
 <script src="../../shared/rpw2.js"></script>
+<script src="../../shared/rpw2ai.js"></script>
 <script>
 (function(){
 "use strict";
@@ -201,6 +202,7 @@ function escHtml(s){return String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&l
 
 function refresh(){
   srcText=$("#srcHtml").value.trim();
+
   const frame=$("#previewFrame");
   if(!srcText){
     frame.srcdoc="<html><body style='font-family:sans-serif;display:grid;place-items:center;height:100vh;color:#889'>Load or paste course HTML above…</body></html>";
@@ -226,6 +228,50 @@ const DEMO=["<h1>Introduction to Eukaryotic Cells</h1>",
 "<h3>Key takeaways</h3><ul><li>Eukaryotes have membrane-bound organelles</li><li>DNA resides in the nucleus</li><li>Energy comes from mitochondria</li></ul>"].join("\n");
 
 refresh();
+
+/* ================= AI STUDIO — content coach ================= */
+RPW2.AI.attachFab(()=>{
+ const html=$("#srcHtml").value;
+ if(!html.trim()){RPW2.toast("Load or paste course HTML first","err");return;}
+ const text=html.replace(/<script[\s\S]*?<\/script>/gi,"").replace(/<[^>]+>/g," ").replace(/\s+/g," ").trim();
+ RPW2.AI.studio({
+  title:"✨ AI Content Coach",
+  subtitle:"Review the loaded course content — get a summary, learning objectives and improvement tips.",
+  fields:[{id:"focus",label:"Focus (optional)",type:"text",placeholder:"e.g. accessibility, engagement, exam prep"}],
+  buildPrompt:v=>`Review this course text and respond ONLY as JSON {"summary":"2 sentences","objectives":["..."],"tips":["actionable improvements"]}. Focus: ${v.focus||"general quality"}. COURSE: ${text.slice(0,3500)}`,
+  offline:v=>{
+   const g=RPW2.AI.gen,r=g.rng(text.slice(0,80)),words=text.split(/\s+/).length;
+   const h1=(html.match(/<h1[^>]*>/gi)||[]).length,h2=(html.match(/<h2[^>]*>/gi)||[]).length,
+    img=(html.match(/<img[^>]*>/gi)||[]).length,alt=(html.match(/<img[^>]+alt=/gi)||[]).length,
+    li=(html.match(/<li[^>]*>/gi)||[]).length;
+   const topic=(text.split(/[.!?]/)[0]||"this course").slice(0,60);
+   return {summary:`Course of ~${words} words covering ${topic.toLowerCase()}. Structure uses ${h1+h2} headings and ${li} list items.`,
+    objectives:g.objectives(topic,3,r),
+    tips:[
+     img&&alt<img?`${img-alt} of ${img} images are missing alt text — add descriptive alt attributes.`:img?"Images have alt text — nice accessibility work.":"No images found; consider a diagram or two for visual learners.",
+     words<150?"Content is thin (<150 words). Expand each section with examples.":words>2500?"Very long document — split into multiple pages or add a table of contents.":"Length looks healthy for a single-page lesson.",
+     h2<2?"Only one heading level detected — break content into scannable sections with <h2>/<h3>.":"Heading hierarchy looks reasonable.",
+     v.focus?("Custom focus '"+v.focus+"' benefits from a live Gemini key — add one under AI settings."):"Tip generated offline — add a Gemini key for deeper review."
+    ]};
+  },
+  preview:d=>`<b>Summary</b><br><span class="small">${RPW2.escapeHtml(d.summary||"")}</span><br><br><b>Objectives</b><ul class="small">${(d.objectives||[]).map(o=>"<li>"+RPW2.escapeHtml(String(o))+"</li>").join("")}</ul><b>Tips</b><ul class="small">${(d.tips||[]).map(t=>"<li>"+RPW2.escapeHtml(String(t))+"</li>").join("")}</ul>`,
+  validate:d=>({summary:String(d.summary||"").slice(0,500),objectives:(d.objectives||[]).map(String),tips:(d.tips||d.suggestions||[]).map(String)}),
+  onData:(d,src,close)=>{
+   close();
+   RPW2.modal("✨ Content review ("+(src==="gemini"?"Gemini":"smart generator")+")",
+    `<div class="ai-out"><b>Summary</b><br><span class="small">${RPW2.escapeHtml(d.summary)}</span>
+      <br><br><b>Learning objectives</b><ul class="small">${d.objectives.map(o=>"<li>"+RPW2.escapeHtml(o)+"</li>").join("")}</ul>
+      <b>Tips</b><ul class="small">${d.tips.map(t=>"<li>"+RPW2.escapeHtml(t)+"</li>").join("")}</ul></div>
+     <div class="row spread mt-2"><span class="tiny muted">Paste objectives into your course intro.</span><button class="rpw-btn sm primary" id="aiIns">Insert objectives block</button></div>`,
+    bd=>{bd.querySelector("#aiIns").onclick=()=>{
+      const block="\n<section>\n<h2>Learning objectives</h2>\n<ul>\n"+d.objectives.map(o=>"  <li>"+o.replace(/</g,"&lt;")+"</li>").join("\n")+"\n</ul>\n</section>\n";
+      const v=$("#srcHtml").value;
+      $("#srcHtml").value=v.includes("</body>")?v.replace("</body>",block+"</body>"):v+block;
+      refresh();RPW2.toast("Objectives appended to source HTML","ok");bd.remove();
+    };});
+  }
+ });
+});
 })();
 </script>
 </body>

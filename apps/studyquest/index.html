@@ -96,6 +96,7 @@
 <div id="quizModalHost"></div>
 <footer class="rpw-footer">StudyQuest · part of <b>RPBeduWorld2</b> · level up your learning habit 🔥</footer>
 <script src="../../shared/rpw2.js"></script>
+<script src="../../shared/rpw2ai.js"></script>
 <script>
 (function(){
 "use strict";
@@ -186,7 +187,7 @@ const ACH=[
  {id:"night",ico:"🦉",name:"Night Owl",desc:"Study after 10pm",test:p=>!!p.nightOwl},
  {id:"early",ico:"🌅",name:"Early Bird",desc:"Study before 7am",test:p=>!!p.earlyBird},
  {id:"all-subj",ico:"🗺️",name:"Explorer",desc:"Try every subject",test:(p)=>Object.keys(p.subjectHits||{}).length>=Object.keys(BANK).length},
- {id:"goal-5",ico:"🏅",name:"Goal Getter",desc:"Hit daily goal 5 days",(test:p=>(p.goalDays||[]).length>=5)}
+ {id:"goal-5",ico:"🏅",name:"Goal Getter",desc:"Hit daily goal 5 days",test:p=>(p.goalDays||[]).length>=5}
 ];
 
 /* ---------- core actions ---------- */
@@ -275,10 +276,48 @@ $("#quickActions").addEventListener("click",e=>{
 });
 
 /* ---------- subjects ---------- */
-$("#subjGrid").innerHTML=Object.keys(BANK).map(s=>'<button class="subj" data-subj="'+esc(s)+'"><div style="font-size:30px">'+s.split(" ")[0]+'</div><b>'+esc(s.replace(/^\S+\s/,""))+'</b><div class="tiny faint mt-1">'+BANK[s].length+' questions · +10 XP each</div></button>').join("");
+function paintSubjects(){
+ $("#subjGrid").innerHTML=Object.keys(BANK).map(s=>'<button class="subj" data-subj="'+esc(s)+'"><div style="font-size:30px">'+s.split(" ")[0]+'</div><b>'+esc(s.replace(/^\S+\s/,""))+'</b><div class="tiny faint mt-1">'+BANK[s].length+' questions · +10 XP each</div></button>').join("");
+}
+paintSubjects();
 $("#subjGrid").addEventListener("click",e=>{
   const b=e.target.closest("[data-subj]");if(b)return startQuiz(b.dataset.subj);
 });
+
+/* ================= AI STUDIO — quest bank generator ================= */
+const K_CUSTOM="sq.customBanks";
+try{(RPW2.store.get(K_CUSTOM,[])||[]).forEach(b=>{BANK[b.name]=b.items;});}catch(e){}
+RPW2.AI.attachFab(()=>RPW2.AI.studio({
+ title:"✨ AI Quest Forge",
+ subtitle:"Forge a brand-new question arena on any topic and earn XP in it.",
+ fields:[
+  {id:"topic",label:"Topic",placeholder:"e.g. Volcanoes, Shakespeare, Python basics"},
+  {id:"count",label:"Questions",type:"number",value:10,min:4,max:20}
+ ],
+ buildPrompt:v=>`Create ${v.count} multiple-choice study questions about "${v.topic}". Respond ONLY with JSON array of {"q":"...","answer":"...","wrongs":["...","...","..."]}. Wrong answers must be plausible.`,
+ offline:v=>{
+  const g=RPW2.AI.gen,r=g.rng(v.topic+Math.random()),n=Math.min(20,Math.max(4,+v.count||10)),out=[];
+  for(let i=0;i<n;i++){const m=g.mcq(v.topic,r);out.push([m.q,m.options[m.answer],m.options.filter((_,j)=>j!==m.answer)]);}
+  return out;
+ },
+ preview:d=>d.map(q=>`<div class="ai-item"><b>${RPW2.escapeHtml(String(q[0]).slice(0,110))}</b><br><span class="small" style="color:#2ecc71">✔ ${RPW2.escapeHtml(String(q[1]).slice(0,90))}</span></div>`).join(""),
+ validate:d=>{
+  const arr=(Array.isArray(d)?d:d.questions||[]).map(x=>[x.q||x[0],x.answer||x[1],x.wrongs||x[2]||[]]);
+  if(!arr.length)throw new Error("No questions found");
+  return arr.map(x=>[String(x[0]),String(x[1]),(Array.isArray(x[2])?x[2]:[]).slice(0,3).map(String)]);
+ },
+ onData:(d,src,close)=>{
+  const topic=document.querySelector("[data-f=topic]").value||"Custom";
+  const name="✨ "+g_T(topic);
+  BANK[name]=d;
+  const saved=(RPW2.store.get(K_CUSTOM,[])||[]).filter(b=>b.name!==name);
+  saved.push({name,items:BANK[name]});RPW2.store.set(K_CUSTOM,saved);
+  paintSubjects();
+  toast(`Arena "${name}" ready with ${d.length} questions (${src==="gemini"?"Gemini":"smart generator"})`,"ok");
+  RPW2.confetti&&RPW2.confetti();close();
+ }
+}));
+function g_T(s){return s.length>26?s.slice(0,24)+"…":s;}
 
 /* ---------- quiz runner ---------- */
 function shuffle(a){for(let i=a.length-1;i>0;i--){const j=(Math.random()*(i+1))|0;[a[i],a[j]]=[a[j],a[i]];}return a;}

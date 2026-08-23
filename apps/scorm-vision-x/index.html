@@ -74,6 +74,7 @@
 <footer class="rpw-footer">SCORM Vision X · part of <b>RPBeduWorld2</b></footer>
 <script src="../../shared/vendor/jszip.min.js"></script>
 <script src="../../shared/rpw2.js"></script>
+<script src="../../shared/rpw2ai.js"></script>
 <script>
 (function(){
 "use strict";
@@ -274,6 +275,41 @@ $("#btnEject").onclick=async()=>{
     $("#loadView").classList.remove("hidden");
   }
 };
+
+/* ================= AI STUDIO — fix advisor ================= */
+const FIXKB={
+ "Manifest is well-formed XML":"Re-export or hand-fix the XML — a parser error usually means an unclosed tag, bad entity or encoding mismatch. Open imsmanifest.xml in a validator and fix the first reported line first.",
+ "ADL SCORM schema declared":"Add the <schema>ADL SCORM</schema> and <schemaversion>…</schemaversion> elements directly under <manifest>.",
+ "Schemaversion":"Set <schemaversion> to 1.2 for SCORM 1.2 packages or 2004 4th Edition for SCORM 2004.",
+ "Organization present":"Add an <organizations> block with at least one <organization> containing your items — many LMS refuse packages without it.",
+ "Launchable item(s)":"Give at least one <item> a valid identifierref pointing to a <resource> with adlcp:scormType=\"sco\".",
+ "Entry file exists":"The resource marked as launchable must reference its entry HTML via <file href=\"…\"> that exists in the zip.",
+ "All referenced files present":"Every <file href> in the manifest must exist in the package. Re-zip including all assets, keeping paths relative."
+};
+RPW2.AI.attachFab(()=>{
+ if(typeof pkg==="undefined"||!pkg||!pkg.validation){RPW2.toast("Load a SCORM package first","err");return;}
+ const fails=pkg.validation.filter(v=>!v.ok);
+ RPW2.AI.studio({
+  title:"✨ AI Fix Advisor",
+  subtitle:fails.length?(fails.length+" issue(s) detected — get targeted remediation steps."):"No issues detected — ask about best practices instead.",
+  fields:[{id:"q",label:"Extra question (optional)",type:"textarea",placeholder:"e.g. Will this pass on Moodle?"}],
+  buildPrompt:v=>`Here are the failing checks of a SCORM package: ${JSON.stringify(fails)}. Extra question: ${v.q||"none"}. Respond ONLY as JSON {"advice":[{"issue":"...","fix":"step-by-step remediation"}]}.`,
+  offline:v=>{
+   const advice=fails.length?fails.map(f=>({issue:f.label+(f.detail?(" ("+f.detail+")"):""),fix:FIXKB[f.label]||"Inspect the manifest section referenced by this check and correct it, then re-package."}))
+    :[{issue:"Package looks healthy",fix:"Before uploading: test in SCORM Vision X sandbox, verify completion logic in the entry HTML, and try a second LMS preview if available."+(v.q?" (Your question needs a live key — add one in AI settings for deeper answers.)":"")}];
+   return {advice};
+  },
+  preview:d=>(d.advice||[]).map(a=>`<div class="ai-item"><b>${RPW2.escapeHtml(a.issue)}</b><br><span class="small">${RPW2.escapeHtml(a.fix)}</span></div>`).join(""),
+  validate:d=>({advice:Array.isArray(d)?d:(d.advice||[])}),
+  onData:(d,src,close)=>{
+   close();
+   RPW2.modal("✨ Remediation plan ("+(src==="gemini"?"Gemini":"smart generator")+")",
+    '<div class="ai-out">'+(d.advice||[]).map(a=>'<div class="ai-item"><b>'+RPW2.escapeHtml(String(a.issue))+"</b><br><span class='small'>"+RPW2.escapeHtml(String(a.fix))+"</span></div>").join("")+'</div>'+
+    '<div class="row spread mt-2"><span class="tiny muted">Copy this into your authoring tool notes.</span><button class="rpw-btn sm" id="aiCopy">Copy</button></div>',
+    bd=>{bd.querySelector("#aiCopy").onclick=()=>{navigator.clipboard&&navigator.clipboard.writeText((d.advice||[]).map(a=>"• "+a.issue+": "+a.fix).join("\n\n"));RPW2.toast("Copied","ok");};});
+  }
+ });
+});
 })();
 </script>
 </body>
