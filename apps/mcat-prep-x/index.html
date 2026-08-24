@@ -21,6 +21,14 @@
   .q-opt.wrong{border-color:var(--rpw-err);background:rgba(255,77,109,.1);}
   .timer-pill{font-family:var(--rpw-mono);font-weight:800;padding:6px 14px;border-radius:99px;background:var(--input-bg);border:1px solid var(--glass-brd);}
   .timer-pill.warn{color:var(--rpw-err);border-color:var(--rpw-err);}
+
+  .dom-del{position:absolute;top:8px;right:10px;width:24px;height:24px;border-radius:50%;border:1px solid var(--glass-brd);
+    background:var(--panel-solid);color:var(--txt-2);font-size:15px;line-height:1;cursor:pointer;opacity:0;transition:all .18s ease}
+  .dom-card{position:relative}
+  .dom-card:hover .dom-del{opacity:1}
+  .dom-del:hover{color:#e74c3c;border-color:#e74c3c}
+  .wz-dot{width:26px;height:5px;border-radius:99px;background:var(--input-bg);transition:background .3s}
+  .wz-dot.on{background:linear-gradient(90deg,var(--app-hue1),var(--app-hue2))}
 </style>
 </head>
 <body>
@@ -35,6 +43,12 @@
     <div class="rpw-hero rpw-rise"><h1>MCAT Prep <span class="grad">X</span></h1>
       <p>Domain-tracked practice, high-yield flashcards and timed sets. Progress lives in your browser.</p></div>
     <div id="kpiRow" class="rpw-kpis mb-3"></div>
+    <div class="row wrap mb-3 no-print" style="gap:8px">
+      <button class="rpw-btn primary sm" id="btnWizard">✨ Guided Forge</button>
+      <button class="rpw-btn ghost sm" id="btnExportAll" title="Download your custom domains, saved cards & progress as JSON">⬇ Export</button>
+      <button class="rpw-btn ghost sm" id="btnImportAll" title="Import previously exported materials (JSON)">⬆ Import</button>
+      <input type="file" id="importFile" accept=".json,application/json" style="display:none">
+    </div>
     <div class="row wrap spread mb-2"><b>Choose your arena</b>
       <div class="rpw-btn-row no-print">
         <label class="small row" style="gap:6px"><input type="checkbox" id="timedChk" checked> Timed (90s/question)</label>
@@ -58,7 +72,7 @@
       <h3 id="qText" style="font-size:17.5px;margin-bottom:14px"></h3>
       <div id="qOpts"></div>
       <div id="qExplain" class="hidden small mt-2" style="color:var(--txt-2);border-left:3px solid var(--app-hue2);padding-left:12px"></div>
-      <div class="mt-3 hidden" id="qNextWrap"><button class="rpw-btn primary" id="btnNextQ">Next →</button></div>
+      <div class="mt-3 hidden" id="qNextWrap" style="display:flex;gap:9px;justify-content:flex-end"><button class="rpw-btn ghost sm hidden" id="btnToCard">＋ Save as flashcard</button><button class="rpw-btn primary" id="btnNextQ">Next →</button></div>
     </div>
   </section>
 
@@ -67,7 +81,10 @@
       <div style="font-size:50px" id="resEmoji"></div>
       <h2 class="grad-text" style="font-size:32px" id="resPct"></h2>
       <p class="muted mt-1" id="resDetail"></p>
-      <button class="rpw-btn primary lg mt-3" id="btnResHome">Back to arenas</button>
+      <div class="row mt-3" style="justify-content:center;gap:9px;flex-wrap:wrap">
+        <button class="rpw-btn primary" id="btnResHome">Back to arenas</button>
+        <button class="rpw-btn ghost hidden" id="btnRetryMiss"></button>
+      </div>
     </div>
   </section>
 
@@ -166,15 +183,36 @@ function paintHome(){
   ].map(k=>'<div class="rpw-kpi"><div class="num">'+k[0]+'</div><div class="lbl">'+k[1]+'</div></div>').join("");
   $("#domGrid").innerHTML=Object.keys(DOMS).map((d,i)=>{
     const a=acc(d);
+    const isCustom=d.indexOf("✨")===0;
     return '<div class="dom-card" data-d="'+esc(d)+'" style="animation-delay:'+(i*.05)+'s">'+
+     (isCustom?'<button class="dom-del no-print" data-del="'+esc(d)+'" title="Delete this custom domain">×</button>':"")+
      '<div style="font-size:30px">'+DOMS[d].ico+'</div><b>'+esc(d)+'</b>'+
+     (isCustom?'<span class="tiny faint"> custom · AI-forged</span>':"")+
      '<p class="tiny faint mt-1">'+DOMS[d].qs.length+' bank questions'+(a!=null?" · your "+a+"%":"")+'</p>'+
      '<div class="rpw-progress mt-2">'+(a!=null?'<div style="width:'+a+'%"></div>':"")+'</div></div>';
   }).join("");
   drawChart();
 }
-function allCards(){return Object.keys(DOMS).flatMap(d=>(DOMS[d].cards||[]).map(c=>({d,f:c[0],b:c[1]})));}
-$("#domGrid").addEventListener("click",e=>{
+function allCards(){
+ const cc=RPW2.store.get(K_CARDS,{});
+ return Object.keys(DOMS).flatMap(d=>{
+  const base=(DOMS[d].cards||[]).map(c=>({d,f:c[0],b:c[1]}));
+  const extra=(cc[d]||[]).map(c=>({d,f:c[0],b:c[1]+" ★"}));
+  return base.concat(extra);
+ });
+}
+$("#domGrid").addEventListener("click",async e=>{
+  const del=e.target.closest("[data-del]");
+  if(del){
+    e.stopPropagation();
+    const name=del.dataset.del;
+    if(await RPW2.confirm({title:"Delete domain?",message:'"'+name+'" and its progress will be removed.',yesLabel:"Delete"})){
+      delete DOMS[name];
+      const saved=RPW2.store.get(K_AI_DOMS,{});delete saved[name];RPW2.store.set(K_AI_DOMS,saved);
+      toast("Domain deleted","ok");paintHome();
+    }
+    return;
+  }
   const c=e.target.closest("[data-d]");
   if(c)return startQuiz(c.dataset.d);
 });
@@ -207,7 +245,7 @@ function startQuiz(domain){
     const opts=shuffle([q[1],...q[2]]);
     return {q:q[0],opts,answer:opts.indexOf(q[1]),domain};
   });
-  quiz={items,idx:0,score:0,domain};
+  quiz={items,idx:0,score:0,domain,misses:[]};
   show("quiz");paintQ();
 }
 function show(v){
@@ -254,10 +292,20 @@ function reveal(pick){
   const p=prog[it.domain]=prog[it.domain]||{ok:0,n:0};
   p.n++;if(ok)p.ok++;
   RPW2.store.set("mcat.progress",prog);
+  if(!ok)quiz.misses.push(it);
   const ex=$("#qExplain");ex.classList.remove("hidden");
   ex.textContent=ok?"✔ Correct — "+it.opts[it.answer]:"✘ Correct answer: "+it.opts[it.answer];
+  $("#btnToCard").classList.toggle("hidden",ok);
   $("#qNextWrap").classList.remove("hidden");
 }
+$("#btnToCard").onclick=()=>{
+  const it=quiz.items[quiz.idx];
+  const cc=RPW2.store.get(K_CARDS,{});
+  cc[it.domain]=cc[it.domain]||[];
+  if(!cc[it.domain].some(c=>c[0]===it.q))cc[it.domain].push([it.q,it.opts[it.answer]]);
+  RPW2.store.set(K_CARDS,cc);
+  toast("Saved to "+it.domain+" flashcards","ok");
+};
 $("#btnNextQ").onclick=()=>{
   quiz.idx++;
   if(quiz.idx>=quiz.items.length){
@@ -266,6 +314,14 @@ $("#btnNextQ").onclick=()=>{
     $("#resEmoji").textContent=pct>=80?"🏆":pct>=50?"💪":"📚";
     $("#resPct").textContent=pct+"%";
     $("#resDetail").textContent=quiz.score+" / "+quiz.items.length+" correct in "+quiz.domain+(pct>=80?" — exam-ready form!":pct>=50?" — solid base, keep drilling":" — review the misses and run it back");
+    const rm=$("#btnRetryMiss"),mN=quiz.misses.length;
+    rm.classList.toggle("hidden",!mN);
+    rm.textContent="↻ Retry "+mN+" missed";
+    rm.onclick=()=>{
+      const items=shuffle(quiz.misses.map(q=>Object.assign({},q)));
+      quiz={items,idx:0,score:0,domain:quiz.domain+" · miss review",misses:[],retrying:true};
+      show("quiz");paintQ();
+    };
     show("res");
     if(pct>=80){RPW2.confetti();RPW2.sfx.win();}else RPW2.sfx.level();
   } else paintQ();
@@ -277,6 +333,7 @@ $("#btnResHome").onclick=()=>{show("home");paintHome();};
 
 /* ================= AI STUDIO — domain forge ================= */
 const K_AI_DOMS="mcat.customDoms";
+const K_CARDS="mcat.customCards";
 try{Object.entries(RPW2.store.get(K_AI_DOMS,{})).forEach(([k,v])=>{DOMS[k]=v;});}catch(e){}
 RPW2.AI.attachFab(()=>RPW2.AI.studio({
  title:"✨ AI Domain Forge",
@@ -311,6 +368,170 @@ RPW2.AI.attachFab(()=>RPW2.AI.studio({
   RPW2.confetti&&RPW2.confetti();close();
  }
 }));
+
+/* ================= GUIDED FORGE WIZARD ================= */
+const SECTIONS=[["Chem/Phys","⚗️"],["Bio/Biochem","🧬"],["Psych/Soc","🧠"],["CARS Skills","📖"]];
+const DIFFS={
+ foundation:{t:"Foundational recall",d:"Straightforward memory and definition questions testing core concepts."},
+ exam:{t:"Exam-level application",d:"MCAT-realistic discrete questions requiring two-step reasoning and application of concepts to novel scenarios."},
+ brutal:{t:"Brutal distractors",d:"Hard questions where every wrong choice is a plausible trap: half-right, out-of-scope, opposite, or true-but-not-asked."}
+};
+let W=null;
+function openWizard(){
+ W={step:1,sec:"Chem/Phys",topic:"",notes:"",diff:"exam",count:10,focus:"",items:null,src:null,busy:false};
+ const m=RPW2.modal("✨ Guided Forge — build study material",'<div id="wz"></div>');
+ m.el.querySelector(".rpw-modal").style.maxWidth="600px";
+ const paint=()=>{
+  const el=m.el.querySelector("#wz");
+  const dots='<div class="row" style="gap:6px;margin-bottom:14px">'+[1,2,3].map(i=>'<span class="wz-dot'+(i<=W.step?" on":"")+'"></span>').join("")+'<span class="tiny muted" style="margin-left:auto">Step '+W.step+" of 3</span></div>";
+  if(W.step===1){
+   el.innerHTML=dots+
+    '<div class="ai-row"><label>Which MCAT section?</label><div class="row wrap" style="gap:7px">'+
+     SECTIONS.map(x=>'<button class="rpw-btn sm '+(W.sec===x[0]?"primary":"ghost")+'" data-sec="'+x[0]+'">'+x[1]+" "+x[0]+"</button>").join("")+"</div></div>"+
+    '<div class="ai-row"><label>Topic focus <span class="muted tiny">(optional — e.g. "amino acid titration", "research methods")</span></label>'+
+     '<input class="rpw-input" id="wzTopic" placeholder="Leave blank for mixed coverage" value="'+esc(W.topic)+'"></div>'+
+    '<div class="row spread mt-3"><span></span><button class="rpw-btn primary" id="wzNext1">Next →</button></div>';
+   el.querySelectorAll("[data-sec]").forEach(b=>b.onclick=()=>{W.sec=b.dataset.sec;paint();});
+   el.querySelector("#wzNext1").onclick=()=>{W.topic=el.querySelector("#wzTopic").value.trim();W.step=2;paint();};
+  }else if(W.step===2){
+   el.innerHTML=dots+
+    '<div class="ai-row"><label>Lecture notes / source material <span class="muted tiny">(optional — questions will be drawn from this)</span></label>'+
+     '<textarea class="rpw-input" rows="5" id="wzNotes" placeholder="Paste lecture notes, textbook excerpts or your own summary…">'+esc(W.notes)+"</textarea></div>"+
+    '<div class="rpw-grid" style="grid-template-columns:1fr 1fr;gap:10px">'+
+     '<div class="ai-row"><label>Difficulty</label><select class="rpw-input" id="wzDiff">'+
+      Object.entries(DIFFS).map(([k,v])=>`<option value="${k}"${W.diff===k?" selected":""}>${v.t}</option>`).join("")+"</select></div>"+
+     '<div class="ai-row"><label>Questions</label><input type="number" class="rpw-input" id="wzCount" min="4" max="20" value="'+W.count+'"></div></div>'+
+     '<div class="ai-row"><label>Extra emphasis <span class="muted tiny">(comma-separated subtopics)</span></label>'+
+     '<input class="rpw-input" id="wzFocus" placeholder="e.g. Le Châtelier, buffers, titration curves" value="'+esc(W.focus)+'"></div>'+
+     '<div class="tiny faint mt-1">Engine: <b>'+RPW2.AI.activeLabel()+"</b>"+(RPW2.AI.hasKey()?"":" — offline generator will craft these")+"</div>"+
+    '<div class="row spread mt-3"><button class="rpw-btn ghost" id="wzBack2">← Back</button><button class="rpw-btn primary" id="wzGen">⚡ Generate</button></div>';
+   el.querySelector("#wzBack2").onclick=()=>{W.step=1;paint();};
+   el.querySelector("#wzGen").onclick=async()=>{
+    W.notes=el.querySelector("#wzNotes").value;
+    W.diff=el.querySelector("#wzDiff").value;
+    W.count=Math.max(4,Math.min(20,+el.querySelector("#wzCount").value||10));
+    W.focus=el.querySelector("#wzFocus").value.trim();
+    W.step=3;paint();await generate(m,paint);
+   };
+  }else{
+   if(W.busy){el.innerHTML=dots+'<div class="center" style="padding:34px 0"><span class="ai-spin"></span><p class="muted small mt-2">Forging '+W.count+" "+DIFFS[W.diff].t.toLowerCase()+" questions…</p></div>";return;}
+   el.innerHTML=dots+
+    (W.items?('<p class="small muted mb-2">Review your forged material — '+W.items.length+" questions"+(W.src==="offline"?" (offline smart generator)":" via "+PROVIDER_LABEL())+":</p>"+
+     '<div style="max-height:250px;overflow:auto;border:1px solid var(--glass-brd);border-radius:11px;padding:4px 12px">'+W.items.map(q=>'<div class="ai-item"><b>'+RPW2.escapeHtml(String(q[0]).slice(0,130))+"</b><br>"+'<span class="small" style="color:#2ecc71">✔ '+RPW2.escapeHtml(String(q[1]).slice(0,100))+"</span></div>").join("")+"</div>"+
+     '<div class="row spread mt-3"><button class="rpw-btn ghost" id="wzRegen">↻ Regenerate</button><button class="rpw-btn primary" id="wzSave">💾 Save as domain</button></div>')
+    :('<p class="muted center" style="padding:26px 0">Generation failed — try again.</p><div class="row spread mt-3"><button class="rpw-btn ghost" id="wzRegen">↻ Retry</button></div>'));
+   const rg=el.querySelector("#wzRegen");if(rg)rg.onclick=async()=>{paint();await generate(m,paint);};
+   const sv=el.querySelector("#wzSave");
+   if(sv)sv.onclick=()=>{
+    const base=W.topic||W.focus.split(",")[0]||W.sec;
+    let name="✨ "+base.slice(0,24);
+    while(DOMS[name])name+="·";
+    DOMS[name]={ico:(SECTIONS.find(x=>x[0]===W.sec)||["","✨"])[1],qs:W.items,cards:[]};
+    const saved=RPW2.store.get(K_AI_DOMS,{});saved[name]=DOMS[name];RPW2.store.set(K_AI_DOMS,saved);
+    toast("Domain saved: "+name+" · "+W.items.length+" questions","ok");
+    RPW2.confetti();m.close();paintHome();
+   };
+  }
+ };
+ paint();
+}
+function PROVIDER_LABEL(){const p=RPW2.AI.CFG.provider;return (RPW2.AI.PROVIDERS[p]||{}).name+" · "+RPW2.AI.model();}
+async function generate(m,paint){
+ W.busy=true;paint();
+ try{
+  let raw;
+  if(RPW2.AI.hasKey()){
+   const dt=DIFFS[W.diff];
+   const prompt="Write "+W.count+" MCAT-style multiple-choice questions for the "+W.sec+" section"+
+    (W.topic?' focused on "'+W.topic+'"':"")+(W.focus?", with extra emphasis on: "+W.focus:"")+
+    ". Difficulty: "+dt.t+" — "+dt.d+
+    (W.notes.trim()?" Base every question strictly on these lecture notes:\n\n"+W.notes.trim().slice(0,3500):" Standalone passage-free items.")+
+    ' Respond ONLY as JSON array of {"q":"...","answer":"...","wrongs":["...","...","..."]}.';
+   raw=RPW2.AI.extractJSON(await RPW2.AI.callLLM(prompt,{temperature:.75,maxTokens:4096}));
+  }else raw=wOffline();
+  const arr=(Array.isArray(raw)?raw:raw.questions||[]).map(x=>[x.q||x[0],x.answer||x[1],x.wrongs||x[2]||[]])
+   .filter(x=>x[0]&&x[1]).map(x=>[String(x[0]),String(x[1]),(Array.isArray(x[2])?x[2]:[]).slice(0,3).map(String)]);
+  if(!arr.length)throw new Error("no usable questions");
+  W.items=arr;W.src=RPW2.AI.hasKey()?"api":"offline";
+ }catch(e){toast("Forge failed: "+e.message,"err");W.items=null;}
+ W.busy=false;paint();
+}
+function wOffline(){
+ const g=RPW2.AI.gen,r=g.rng((W.topic||W.sec)+Math.random());
+ const flavor=[""," advanced applications"," tricky edge cases",""," multi-step reasoning"][(W.diff==="foundation"?0:W.diff==="brutal"?2:3)]||"";
+ const notes=String(W.notes||"").trim(),out=[];
+ if(notes.length>60){
+  const sents=notes.split(/(?<=[.!?])\s+|\n+/).map(x=>x.trim()).filter(x=>{const w=x.split(/\s+/).length;return w>=7&&x.length>=40&&x.length<=240;});
+  const kwAll=[...new Set(sents.flatMap(x=>g.kw(x)).filter(k=>k.length>4))];
+  for(const sent of g.shuf(sents,r)){
+   const ks=g.kw(sent).filter(k=>k.length>4&&sent.includes(k));
+   if(!ks.length)continue;
+   const ans=g.pick(ks,r);
+   let q;try{q=sent.replace(new RegExp(ans.replace(/[.*+?^\${}()|[\]\\]/g,"\\$&"),"i"),"_____");}catch(e){continue;}
+   if(q===sent)continue;
+   const wrongs=g.shuf(kwAll.filter(x=>x!==ans),r).slice(0,3);
+   while(wrongs.length<3){const f=["process","structure","mechanism","principle"][wrongs.length];if(!wrongs.includes(f))wrongs.push(f);}
+   out.push([q,ans,wrongs]);
+   if(out.length>=W.count)break;
+  }
+ }
+ const topic=W.topic||(W.notes.trim()?g.kw(notes).slice(0,2).join(" "):W.sec);
+ while(out.length<W.count){const mm=g.mcq(topic+flavor,r);out.push([mm.q,mm.options[mm.answer],mm.options.filter((_,j)=>j!==mm.answer)]);}
+ return out;
+}
+$("#btnWizard").onclick=openWizard;
+
+/* ================= EXPORT / IMPORT ================= */
+$("#btnExportAll").onclick=()=>{
+ const customs={};Object.keys(DOMS).forEach(d=>{if(d.indexOf("✨")===0)customs[d]=DOMS[d];});
+ const payload={schema:"rpw2.mcat.v1",exported:new Date().toISOString(),
+  domains:customs,progress:prog,customCards:RPW2.store.get(K_CARDS,{})};
+ RPW2.download("mcat-prep-x-export-"+new Date().toISOString().slice(0,10)+".json",
+  JSON.stringify(payload,null,2),"application/json");
+ toast("Exported "+Object.keys(customs).length+" custom domain(s) + progress + cards","ok");
+};
+$("#btnImportAll").onclick=()=>$("#importFile").click();
+function readText(fl){return new Promise((res,rej)=>{if(typeof fl.text==="function")return fl.text().then(res,rej);const r=new FileReader();r.onload=()=>res(r.result);r.onerror=()=>rej(new Error("read error"));r.readAsText(fl);});}
+$("#importFile").onchange=async e=>{
+ const f=e.target.files[0];e.target.value="";
+ if(!f)return;
+ try{
+  const j=JSON.parse(await readText(f));
+  let nD=0,nC=0;
+  const mergeDom=(name,d)=>{
+   if(!name||!d||!Array.isArray(d.qs)||!d.qs.length)return;
+   let nm=name;while(DOMS[nm])nm+="·";
+   DOMS[nm]=d;
+   const saved=RPW2.store.get(K_AI_DOMS,{});saved[nm]=d;RPW2.store.set(K_AI_DOMS,saved);
+   nD++;
+  };
+  if(j&&j.schema==="rpw2.mcat.v1"){
+   Object.entries(j.domains||{}).forEach(([k,v])=>mergeDom(k,v));
+   if(j.progress&&typeof j.progress==="object"){
+    Object.entries(j.progress).forEach(([k,v])=>{
+     const cur=prog[k]||{ok:0,n:0};
+     prog[k]={ok:Math.max(cur.ok,v.ok||0),n:Math.max(cur.n,v.n||0)};
+    });
+    RPW2.store.set("mcat.progress",prog);
+   }
+   if(j.customCards&&typeof j.customCards==="object"){
+    const cc=RPW2.store.get(K_CARDS,{});
+    Object.entries(j.customCards).forEach(([k,v])=>{cc[k]=[...(cc[k]||[]),...v.filter(x=>Array.isArray(x)&&x.length>=2)];});
+    RPW2.store.set(K_CARDS,cc);nC=Object.keys(j.customCards).length;
+   }
+  }else{
+   const list=Array.isArray(j)?j:[j];
+   list.forEach(x=>{if(x&&x.qs)mergeDom(x.name||x.title||"Imported",x);else if(x&&(x.f||x.front)&&nD===0&&!list.some(z=>z.qs)){/*skip*/}});
+   if(!nD){
+    // maybe a bare {front,back} card list
+    const cards=list.filter(x=>x&&(x.f||x.front)).map(x=>[(x.f||x.front),(x.b||x.back)]);
+    if(cards.length){const cc=RPW2.store.get(K_CARDS,{});cc["✨ Imported cards"]=cards;RPW2.store.set(K_CARDS,cc);toast(cards.length+" cards imported into ✨ Imported cards","ok");paintHome();return;}
+   }
+  }
+  if(nD||nC){paintHome();toast("Imported "+nD+" domain(s)"+(nC?" & "+nC+" card set(s)":""),"ok");}
+  else throw new Error("unrecognized format");
+ }catch(err){toast("Import failed: "+err.message,"err");}
+};
 
 /* ---------- flashcards ---------- */
 let ci=0;
