@@ -168,13 +168,15 @@
       const o = actx.createOscillator(), g = actx.createGain();
       o.type = type || "sine"; o.frequency.setValueAtTime(freq, t);
       g.gain.setValueAtTime(0.0001, t);
-      g.gain.exponentialRampToValueAtTime(vol || 0.12, t + 0.02);
+      g.gain.exponentialRampToValueAtTime((vol || 0.12) * (global.RPW2?sfx.volume:1), t + 0.02);
       g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
       o.connect(g).connect(actx.destination); o.start(t); o.stop(t + dur + 0.05);
     } catch (e) { /* audio unavailable */ }
   }
   const sfx = {
     muted: store.get("sfx.muted", false),
+    volume: Math.max(0, Math.min(1, store.get("sfx.volume", 1))),
+    setVolume(v) { this.volume = Math.max(0, Math.min(1, +v || 0)); store.set("sfx.volume", this.volume); return this.volume; },
     play(name) {
       if (this.muted) return;
       const m = {
@@ -192,8 +194,22 @@
     toggleMute() { this.muted = !this.muted; store.set("sfx.muted", this.muted); return this.muted; }
   };
 
-  /* ---------------- confetti ---------------- */
+  /* ---------------- accessibility: reduced motion ---------------- */
+  const a11y = {
+    reduced: store.get("a11y.rm", null),
+    apply() {
+      const r = this.reduced == null
+        ? (global.matchMedia && global.matchMedia("(prefers-reduced-motion: reduce)").matches)
+        : !!this.reduced;
+      document.documentElement.setAttribute("data-motion", r ? "reduced" : "full");
+      return r;
+    },
+    set(v) { this.reduced = v; store.set("a11y.rm", v); return this.apply(); }
+  };
+
+/* ---------------- confetti ---------------- */
   function confetti(x, y) {
+    if (document.documentElement.getAttribute("data-motion") === "reduced") return;
     const cv = document.createElement("canvas");
     Object.assign(cv.style, { position: "fixed", inset: 0, zIndex: 400, pointerEvents: "none" });
     cv.width = innerWidth; cv.height = innerHeight;
@@ -249,6 +265,7 @@
     }
   });
 
-  const RPW2 = { icon, escapeHtml, uid, now, fmtDate, toast, confirm, modal, download, pickFile, store, theme, sfx, confetti, initTopbar };
+  const RPW2 = { icon, escapeHtml, uid, now, fmtDate, toast, confirm, modal, download, pickFile, store, theme, sfx, a11y, confetti, initTopbar };
+  try { RPW2.a11y.apply(); } catch (e) {}
   global.RPW2 = RPW2;
 })(window);

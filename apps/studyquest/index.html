@@ -136,7 +136,7 @@ let completions=RPW2.store.get(K_REC,[]);
 const $=s=>document.querySelector(s);
 RPW2.initTopbar("StudyQuest","trophy");
 
-let player=RPW2.store.get(K.p,{name:"Scholar",xp:0,streak:0,lastActive:null,goal:50,goalDays:[],subjectHits:{},correctTotal:0,quizCount:0});
+let player=RPW2.store.get(K.p,{name:"Scholar",xp:0,streak:0,lastActive:null,goal:50,goalDays:[],subjectHits:{},correctTotal:0,quizCount:0,combo:0,comboDate:null});
 let log=RPW2.store.get(K.log,[]);
 let unlocked=RPW2.store.get(K.ach,{});
 
@@ -250,6 +250,8 @@ function checkGoal(){
   }
 }
 function addXPBonus(n,msg){ player.xp+=n; log.unshift({date:todayKey(),time:new Date().toISOString(),label:msg,xp:n}); RPW2.store.set(K.p,player); RPW2.store.set(K.log,log); toast("+"+n+" bonus XP — "+msg,"info"); }
+function comboCorrect(){const tk=todayKey();if(player.comboDate!==tk){player.combo=0;player.comboDate=tk;}player.combo=Math.min(player.combo+1,5);RPW2.store.set(K.p,player);}
+function comboBreak(){player.combo=0;RPW2.store.set(K.p,player);}
 function checkAchievements(){
   ACH.forEach(a=>{
     if(!unlocked[a.id]&&a.test(player)){
@@ -440,8 +442,8 @@ function startQuiz(subject){
       const right=btn.dataset.o===q[1];
       answers.push({q:q[0],pick:btn.dataset.o,right});
       btns.forEach(el=>{el.disabled=true;if(el.dataset.o===q[1])el.classList.add("right");else if(el===btn)el.classList.add("wrong");});
-      if(right){score++;player.correctTotal++;RPW2.sfx.ok();}
-      else RPW2.sfx.err();
+      if(right){score++;player.correctTotal++;comboCorrect();RPW2.sfx.ok();}
+      else {comboBreak();RPW2.sfx.err();}
       player.subjectHits=player.subjectHits||{};player.subjectHits[subject]=(player.subjectHits[subject]||0)+1;
       RPW2.store.set(K.p,player);
       m.el.querySelector("#qa .qbar>div").style.width=((idx+1)/qs.length*100)+"%";
@@ -457,7 +459,7 @@ function startQuiz(subject){
     cleanupKeys();
     player.quizCount++;if(score===qs.length)player.hadPerfect=true;
     RPW2.store.set(K.p,player);
-    addXP(score*10,'Quiz "'+subject.replace(/^\S+\s/,"")+'" — '+score+"/"+qs.length);
+    addXP(score*10*Math.max(1,player.combo),'Quiz "'+subject.replace(/^\S+\s/,"")+'" — '+score+"/"+qs.length);
     completions.unshift({s:subject,score,total:qs.length,xp:score*10,time:new Date().toISOString()});
     completions=completions.slice(0,50);
     RPW2.store.set(K_REC,completions);

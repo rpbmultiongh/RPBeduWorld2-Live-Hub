@@ -52,6 +52,7 @@
     <div class="row wrap spread mb-2"><b>Choose your arena</b>
       <div class="rpw-btn-row no-print">
         <label class="small row" style="gap:6px"><input type="checkbox" id="timedChk" checked> Timed (90s/question)</label>
+        <label class="small row" style="gap:6px"><input type="checkbox" id="speedChk"> ⚡ Speed Run (3 min global)</label>
         <select class="rpw-select" id="lenSel" style="max-width:130px"><option value="6">6 Qs</option><option value="10" selected>10 Qs</option><option value="15">15 Qs</option></select>
       </div></div>
     <div class="rpw-grid rpw-rise" style="animation-delay:.06s" id="domGrid"></div>
@@ -66,6 +67,7 @@
       <button class="rpw-btn sm ghost" id="btnQuitQ">← End session</button>
       <span class="muted small" id="qPos"></span>
       <span class="timer-pill" id="timerPill">--</span>
+      <span class="timer-pill" id="speedPill" style="display:none">--</span>
     </div>
     <div class="rpw-progress mb-3"><div id="quizBar"></div></div>
     <div class="rpw-panel" style="max-width:760px;margin:0 auto">
@@ -239,6 +241,7 @@ addEventListener("resize",()=>{if(!$("#viewHome").classList.contains("hidden"))d
 
 /* ---------- quiz ---------- */
 let quiz=null,timerInt=null;
+let speedInt=null,speedLeft=180;
 function startQuiz(domain){
   const n=+$("#lenSel").value;
   const items=shuffle([...DOMS[domain].qs]).slice(0,n).map(q=>{
@@ -246,14 +249,43 @@ function startQuiz(domain){
     return {q:q[0],opts,answer:opts.indexOf(q[1]),domain};
   });
   quiz={items,idx:0,score:0,domain,misses:[]};
+  clearInterval(speedInt);
+  if($("#speedChk").checked){
+    speedLeft=180; paintSpeedPill();
+    speedInt=setInterval(()=>{
+      speedLeft--; paintSpeedPill();
+      if(speedLeft<=0){
+        clearInterval(speedInt);
+        /* auto-miss remaining unanswered questions */
+        while(quiz.idx<quiz.items.length){
+          const it=quiz.items[quiz.idx];
+          quiz.misses.push(it);
+          const p=prog[it.domain]=prog[it.domain]||{ok:0,n:0};
+          p.n++;
+          RPW2.store.set("mcat.progress",prog);
+          quiz.idx++;
+        }
+        toast("⏱ Time's up! "+quiz.misses.length+" question(s) auto-scored as missed","err");
+        finishQuiz();
+      }
+    },1000);
+  }
   show("quiz");paintQ();
 }
+function paintSpeedPill(){
+  const sp=$("#speedPill");
+  if(!sp)return;
+  sp.textContent="⚡ "+Math.floor(speedLeft/60)+":"+String(speedLeft%60).padStart(2,"0");
+  sp.classList.toggle("warn",speedLeft<=30);
+}
+function finishQuiz(){ show("res"); paintRes(); }
 function show(v){
   ["Home","Quiz","Res","Cards"].forEach(n=>$("#view"+n).classList.toggle("hidden",n.toLowerCase()!==v));
 }
 function paintQ(){
   const it=quiz.items[quiz.idx];
   clearInterval(timerInt);
+  const sp=$("#speedPill");if(sp)sp.style.display=$("#speedChk").checked?"":"none";
   $("#qPos").textContent="Q "+(quiz.idx+1)+" / "+quiz.items.length+" · "+quiz.domain;
   $("#quizBar").style.width=(quiz.idx/quiz.items.length*100)+"%";
   $("#qText").textContent=it.q;
@@ -297,6 +329,9 @@ function reveal(pick){
   ex.textContent=ok?"✔ Correct — "+it.opts[it.answer]:"✘ Correct answer: "+it.opts[it.answer];
   $("#btnToCard").classList.toggle("hidden",ok);
   $("#qNextWrap").classList.remove("hidden");
+  if(speedInt&&quiz.idx>=quiz.items.length-1){
+    const sn=$("#btnNextQ");if(sn)sn.textContent="See Results →";
+  }
 }
 $("#btnToCard").onclick=()=>{
   const it=quiz.items[quiz.idx];
@@ -306,7 +341,7 @@ $("#btnToCard").onclick=()=>{
   RPW2.store.set(K_CARDS,cc);
   toast("Saved to "+it.domain+" flashcards","ok");
 };
-$("#btnNextQ").onclick=()=>{
+$("#btnNextQ").onclick=()=>{if(speedLeft<=0){show("res");return;}clearInterval(speedInt);
   quiz.idx++;
   if(quiz.idx>=quiz.items.length){
     const pct=Math.round(quiz.score/quiz.items.length*100);
@@ -327,7 +362,7 @@ $("#btnNextQ").onclick=()=>{
   } else paintQ();
 };
 $("#btnQuitQ").onclick=async()=>{
-  if(await RPW2.confirm({title:"End session?",message:"Current progress in this set will be kept.",yesLabel:"End"})){clearInterval(timerInt);show("home");paintHome();}
+  if(await RPW2.confirm({title:"End session?",message:"Current progress in this set will be kept.",yesLabel:"End"})){clearInterval(timerInt);clearInterval(speedInt);show("home");paintHome();}
 };
 $("#btnResHome").onclick=()=>{show("home");paintHome();};
 

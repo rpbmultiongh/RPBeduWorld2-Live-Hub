@@ -378,6 +378,7 @@ function nextQZ(){
      '<p class="muted small mt-1">'+quiz.score+" / "+n+' correct'+(pct<60?" — below the 60% pass mark. Review the material and retry!":" — saved to gradebook")+"</p>"+
      '<div class="row mt-2" style="justify-content:center;gap:9px;flex-wrap:wrap">'+
      (mN?'<button class="rpw-btn ghost" id="qzMRetry">↻ Retry '+mN+" missed</button>":"")+
+     (mN?'<button class="rpw-btn ghost" id="qzBridgeFA" title="Create a FlashAI deck from these missed questions">🃏→ FlashAI</button>':'')+
      '<button class="rpw-btn primary" id="qzFinish">Finish</button></div>';
     w.querySelector("#qzFinish").onclick=()=>{ $("#quizBox").classList.add("hidden");w.classList.add("hidden");paintCourse();renderLibrary(); };
     const mr=w.querySelector("#qzMRetry");
@@ -385,6 +386,20 @@ function nextQZ(){
       const items=(function(a){for(let i=a.length-1;i>0;i--){const j=(Math.random()*(i+1))|0;[a[i],a[j]]=[a[j],a[i]];}return a;})(quiz.misses.map(x=>Object.assign({},x)));
       quiz={items,idx:0,score:0,lesson:quiz.lesson,misses:[],retrying:true};
       w.classList.add("hidden");paintQZ();
+    };
+
+    /* 🃏 bridge: send missed questions → FlashAI deck */
+    const bFA=w.querySelector("#qzBridgeFA");
+    if(bFA)bFA.onclick=()=>{
+      if(!quiz.misses.length){toast("No misses to send","info");return;}
+      try{
+        const K_DECKS="flashai.decks";
+        const decks=RPW2.store.get(K_DECKS,[]);
+        const cards=quiz.misses.map(m=>({front:m.q||m.question||"?",back:m.a||m.answer||m.opts?.[m.answer]||"?",tags:["miss-bridge","lm:"+((quiz.lesson||{}).title||"").slice(0,20)]}));
+        const newDeck={id:"lm-"+Date.now(),name:"LM Missed · "+((quiz.lesson||{}).title||"").slice(0,20),cards:cards.map(c=>({id:"c"+Date.now()+"-"+Math.random().toString(36).slice(2,7),front:c.front,back:c.back,tags:c.tags,srs:{ease:2.5,interval:0,due:null,reps:0},stats:{seen:0,right:0}})),created:new Date().toISOString()};
+        decks.push(newDeck); RPW2.store.set(K_DECKS,decks);
+        RPW2.sfx.ok(); toast("🃏 Sent "+cards.length+" missed card(s) to FlashAI","ok");
+      }catch(e){toast("Bridge failed — open FlashAI to import manually","err");}
     };
     if(pct>=80)RPW2.confetti();else RPW2.sfx.level();
   } else paintQZ();

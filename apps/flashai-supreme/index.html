@@ -60,8 +60,9 @@
     </div>
     <div id="statsRow" class="rpw-kpis mb-3"></div>
     <div class="rpw-panel mb-3">
-      <div class="rpw-section-title">Review activity — last 7 days</div>
-      <canvas class="chart" id="chartWeek" height="120"></canvas>
+      <div class="rpw-section-title">Review activity — 5-week heatmap &amp; due forecast</div>
+      <canvas class="chart" id="chartWeek" height="150"></canvas>
+      <div id="forecastRow" class="row wrap mt-2" style="gap:8px"></div>
     </div>
     <div id="deckGrid" class="deck-grid"></div>
   </section>
@@ -222,22 +223,42 @@ function renderStats(){
   ].map(k=>'<div class="rpw-kpi"><div class="num">'+k[0]+'</div><div class="lbl">'+k[1]+'</div></div>').join("");
 }
 function renderWeekChart(){
+  /* 35-day contribution-style heatmap (past) */
   const cv=$("#chartWeek"), ctx=cv.getContext("2d");
-  cv.width=cv.clientWidth*devicePixelRatio; cv.height=120*devicePixelRatio;
+  cv.width=cv.clientWidth*devicePixelRatio; cv.height=150*devicePixelRatio;
   ctx.scale(devicePixelRatio,devicePixelRatio);
-  const days=[...Array(7)].map((_,i)=>{const d=new Date();d.setDate(d.getDate()-6+i);return d.toISOString().slice(0,10);});
-  const counts=days.map(day=>reviews.filter(r=>r.date===day).length);
-  const max=Math.max(...counts,4), W=cv.clientWidth,H=110,pad=8;
+  const W=cv.clientWidth,H=140,pad=6;
   ctx.clearRect(0,0,W,H);
-  days.forEach((day,i)=>{
-    const bw=(W-pad*2)/7-10, x=pad+i*((W-pad*2)/7), h=(counts[i]/max)*(H-28);
-    const g=ctx.createLinearGradient(0,H-h,0,H); g.addColorStop(0,"#8e44ad"); g.addColorStop(1,"#3498db");
-    ctx.fillStyle=g; roundRect(ctx,x+5,H-h,bw,Math.max(h,3),5); ctx.fill();
-    ctx.fillStyle=document.documentElement.dataset.theme==="dark"?"#98a2c0":"#55607e";
-    ctx.font="600 9.5px system-ui"; ctx.textAlign="center";
-    ctx.fillText(new Date(day).toLocaleDateString(undefined,{weekday:"short"}).slice(0,3), x+5+bw/2, H-4);
-    if(counts[i]) ctx.fillText(counts[i], x+5+bw/2, H-h-5);
+  const dayKey=d=>{const x=new Date(d);x.setMinutes(x.getMinutes()-x.getTimezoneOffset());return x.toISOString().slice(0,10);};
+  const countsByDay={}; reviews.forEach(r=>countsByDay[r.date]=(countsByDay[r.date]||0)+1);
+  const today=new Date(); today.setHours(12,0,0,0);
+  const cells=[...Array(35)].map((_,i)=>{const d=new Date(today);d.setDate(d.getDate()-34+i);return d;});
+  const maxC=Math.max(4,...Object.values(countsByDay));
+  const cw=(W-pad*2)/7, ch=(H-16)/5, gap=3;
+  cells.forEach((d,i)=>{
+    const key=dayKey(d), n=countsByDay[key]||0, col=i%7, row=(i/7)|0;
+    const t=Math.min(1,n/maxC);
+    ctx.fillStyle=n? "rgba(142,68,173,"+(0.22+0.78*t)+")" : (document.documentElement.dataset.theme==="dark"?"rgba(255,255,255,.06)":"rgba(0,0,0,.06)");
+    roundRect(ctx,pad+col*cw,pad+row*ch,cw-gap,ch-gap,5); ctx.fill();
+    if(n){ ctx.fillStyle="#fff"; ctx.font="700 10px system-ui"; ctx.textAlign="center";
+      ctx.fillText(n, pad+col*cw+(cw-gap)/2, pad+row*ch+ch/2+3.5); }
   });
+  ctx.fillStyle=document.documentElement.dataset.theme==="dark"?"#98a2c0":"#55607e";
+  ctx.font="600 9.5px system-ui"; ctx.textAlign="left";
+  ctx.fillText(cells[0].toLocaleDateString(undefined,{month:"short",day:"numeric"})+" - "+cells[34].toLocaleDateString(undefined,{month:"short",day:"numeric"}),pad,H-3);
+
+  /* due forecast (next 7 days) */
+  const fr=$("#forecastRow");
+  if(fr){
+    const nowT=Date.now();
+    const per=[...Array(7)].map((_,i)=>{
+      const d0=new Date(); d0.setHours(0,0,0,0); d0.setDate(d0.getDate()+i);
+      const d1=new Date(d0); d1.setDate(d1.getDate()+1);
+      return decks.reduce((a,d)=>a+d.cards.filter(c=>c.srs&&c.srs.due&&(new Date(c.srs.due).getTime()>=(i?d0.getTime():nowT-30*24*36e5))&&new Date(c.srs.due).getTime()<d1.getTime()).length,0);
+    });
+    fr.innerHTML='<b class="tiny">Due next 7 days:</b>'+per.map((n,i)=>
+      '<span class="rpw-chip">'+(i===0?"Today":new Date(Date.now()+i*864e5).toLocaleDateString(undefined,{weekday:"short"}))+" · "+n+"</span>").join("");
+  }
 }
 function roundRect(c,x,y,w,h,r){ c.beginPath(); c.moveTo(x+r,y); c.arcTo(x+w,y,x+w,y+h,r); c.arcTo(x+w,y+h,x,y+h,r); c.arcTo(x,y+h,x,y,r); c.arcTo(x,y,x+w,y,r); c.closePath(); }
 
@@ -316,6 +337,18 @@ function finishSession(res){
 }
 
 /* ---------- EDIT CARDS MODAL ---------- */
+/* ✂ cloze-deletion card maker */
+function makeCloze(d,c){
+  if(!c)return;
+  const words=(String(c.back||"").match(/[A-Za-z\u00C0-\u024F]{6,}/g)||[]).filter(w=>!/^(because|through|between|without|during|which|whereas|their|about|would|could|should|these|those|other|after|before)$/i.test(w));
+  if(!words.length){toast("Add a longer answer first — no keyword found to blank out","info");return;}
+  const kw=words.reduce((a,b)=>b.length>a.length?b:a);
+  let sent=String(c.back||"").replace(new RegExp("\\b"+kw.replace(/[.*+?^${}()|[\]\\]/g,"\\$&")+"\\b","i"),"_____");
+  d.cards.push(mkCard(sent,kw,(c.tags||[]).concat(["cloze"])));
+  save(); RPW2.sfx.ok();
+  toast("Cloze card created: \""+sent.slice(0,60)+(sent.length>60?"…":"")+"\"","ok");
+}
+
 function startEditCards(id){
   activeDeckId=id; const d=deckById(id); if(!d)return;
   const m=RPW2.modal("Cards · "+esc(d.name),
@@ -328,7 +361,7 @@ function startEditCards(id){
   const paint=()=>{
     m.el.querySelector("#cardList").innerHTML=d.cards.length?('<table class="rpw-table"><tbody>'+d.cards.map(c=>
       '<tr><td class="grow"><b>'+esc(c.front)+'</b><br><span class="small muted">'+esc(c.back)+'</span></td>'+
-      '<td style="white-space:nowrap"><button class="rpw-btn icon-only" data-ce="'+c.id+'">'+RPW2.icon("edit",14)+'</button> '+
+      '<td style="white-space:nowrap"><button class="rpw-btn icon-only" data-cz="'+c.id+'" title="Make cloze card">✂</button> <button class="rpw-btn icon-only" data-ce="'+c.id+'">'+RPW2.icon("edit",14)+'</button> '+
       '<button class="rpw-btn icon-only" data-cx="'+c.id+'" aria-label="Delete card">'+RPW2.icon("trash",14)+'</button></td></tr>').join("")+"</tbody></table>")
      :'<div class="rpw-empty"><div class="big">🃏</div><p>No cards yet.</p></div>';
   };
@@ -340,6 +373,8 @@ function startEditCards(id){
     paint(); RPW2.sfx.ok();
   };
   m.el.querySelector("#cardList").addEventListener("click", async e=>{
+    const cz=e.target.closest("[data-cz]");
+    if(cz){ makeCloze(d,d.cards.find(c=>c.id===cz.dataset.cz)); paint(); return; }
     const ed=e.target.closest("[data-ce]"), dl=e.target.closest("[data-cx]");
     if(dl){ const cid=dl.dataset.cx; d.cards=d.cards.filter(c=>c.id!==cid); save(); paint(); }
     else if(ed){ const card=d.cards.find(c=>c.id===ed.dataset.ce);

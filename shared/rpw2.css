@@ -310,3 +310,8 @@ html[data-theme="light"] .rpw-badge.err { color: #b31237; }
 }
 .ai-keylink{margin-left:8px;font-size:.78rem;color:var(--acc,#7aa2ff);text-decoration:none;border-bottom:1px dashed currentcolor}
 .ai-keylink:hover{filter:brightness(1.2)}
+
+/* reduced motion */
+[data-motion="reduced"] *, [data-motion="reduced"] *::before, [data-motion="reduced"] *::after{
+  animation-duration:.01ms!important;animation-iteration-count:1!important;
+  transition-duration:.01ms!important;scroll-behavior:auto!important}

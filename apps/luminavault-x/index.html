@@ -35,6 +35,7 @@
   <div class="rpw-app-title"></div>
   <div class="rpw-topbar-actions">
     <button class="rpw-btn sm" id="btnImport">Import</button>
+    <button class="rpw-btn sm" id="btnToday" title="Open today's daily note">📅 Today</button>
     <button class="rpw-btn sm primary" id="btnNew">＋ New Note</button>
     <button class="rpw-theme-toggle" aria-label="Toggle theme"></button>
   </div>
@@ -225,6 +226,18 @@ $("#btnPreview").onclick=()=>{
 };
 $("#edBody").addEventListener("input",()=>{queueSave();updateWordCount();});
 $("#edTitle").addEventListener("input",queueSave);
+
+/* 📅 daily note */
+function dailyKey(){ const d=new Date(); return d.toLocaleDateString(undefined,{year:"numeric",month:"long",day:"numeric"}); }
+function dailyTag(){ return "daily:"+new Date().toISOString().slice(0,10); }
+$("#btnToday").onclick=()=>{
+  const tag=dailyTag();
+  const existing=notes.find(n=>(n.tags||[]).includes(tag));
+  if(existing){ openNote(existing.id); toast("Opened today's note","ok"); return; }
+  const n={id:RPW2.uid(),title:"📅 "+dailyKey(),body:"## Today\n\n- What did I learn?\n- What's still unclear?\n- Tomorrow I will...",tags:(["daily","journal",tag]),created:new Date().toISOString(),updated:new Date().toISOString(),pinned:true};
+  notes.unshift(n); save(); openNote(n.id);
+  toast("Created today's daily note","ok");
+};
 
 /* ---------- actions ---------- */
 $("#btnNew").onclick=()=>{
