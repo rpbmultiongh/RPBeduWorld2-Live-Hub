@@ -254,7 +254,7 @@ function render(course){
       if(sc===l.quiz.length)RPW2.confetti();
     };
   }
-  $("#outWrap").scrollIntoView({behavior:"smooth"});
+  if($("#outWrap").scrollIntoView)$("#outWrap").scrollIntoView({behavior:"smooth"});
   lastResult=course;
 }
 function esc(s){return RPW2.escapeHtml(s);}

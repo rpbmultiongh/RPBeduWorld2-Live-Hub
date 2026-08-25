@@ -19,6 +19,24 @@
   .content-html h2,.content-html h3{margin:.8em 0 .3em;} 
   .badge-tile { text-align:center; padding:13px 8px; border-radius:12px; border:1px solid var(--glass-brd); opacity:.35; filter:grayscale(1); }
   .badge-tile.earned{opacity:1;filter:none;border-color:rgba(243,156,18,.45);background:rgba(243,156,18,.07);}
+
+  #qzOpts{display:flex;flex-direction:column;gap:9px}
+  .quiz-opt{display:flex;align-items:center;width:100%;text-align:left;padding:12px 14px;border-radius:12px;
+    border:1px solid var(--glass-brd);background:var(--input-bg);color:var(--txt);font-size:14.5px;line-height:1.45;
+    font-family:inherit;cursor:pointer;transition:transform .14s ease,border-color .14s ease,box-shadow .14s ease}
+  .quiz-opt:hover:not(:disabled){transform:translateY(-2px);border-color:#27ae60;box-shadow:0 6px 18px -8px rgba(39,174,96,.5)}
+  .quiz-opt .key{flex:none;display:inline-grid;place-items:center;width:25px;height:25px;margin-right:11px;border-radius:8px;
+    background:color-mix(in srgb,#27ae60 16%,transparent);font-weight:800;font-size:12px}
+  .quiz-opt.right{border-color:#2ecc71;background:color-mix(in srgb,#2ecc71 15%,var(--input-bg))}
+  .quiz-opt.right .key{background:#2ecc71;color:#04240f}
+  .quiz-opt.wrong{border-color:#e74c3c;background:color-mix(in srgb,#e74c3c 13%,var(--input-bg))}
+  .cont-strip{display:flex;align-items:center;gap:12px;padding:13px 16px;border-radius:14px;border:1px solid color-mix(in srgb,#27ae60 35%,transparent);
+    background:linear-gradient(120deg,color-mix(in srgb,#27ae60 10%,transparent),transparent);margin-bottom:14px}
+  @media print{
+    body *{visibility:hidden!important}
+    #certBox,#certBox *{visibility:visible!important}
+    #certBox{position:fixed;inset:0;margin:0!important;max-width:none!important;box-shadow:none!important;border:none!important;display:grid;place-items:center;background:#fff;color:#111}
+  }
 </style>
 </head>
 <body>
@@ -47,6 +65,7 @@
       </div>
     </div>
     <div id="kpis" class="rpw-kpis mb-3"></div>
+    <div id="contStrip"></div>
     <div id="panelCourses">
       <div id="courseGrid" class="rpw-grid"></div>
     </div>
@@ -65,6 +84,7 @@
       <div class="rpw-btn-row">
         <button class="rpw-btn sm" id="btnAddLesson">＋ Lesson</button>
         <button class="rpw-btn sm" id="btnExportCourse">Export</button>
+        <button class="rpw-btn sm ghost hidden" id="btnCert">🎓 Certificate</button>
         <button class="rpw-btn sm danger" id="btnDelCourse">Delete</button>
       </div>
     </div>
@@ -87,6 +107,7 @@
       <div class="row spread">
         <label class="small row" style="gap:7px;cursor:pointer"><input type="checkbox" id="lsDone"> Completed</label>
         <button class="rpw-btn primary" id="btnStartQuiz">Start Quiz →</button>
+        <button class="rpw-btn sm ghost no-print" id="btnGenQuiz">✨ Generate quiz</button>
       </div>
     </div>
     <!-- QUIZ -->
@@ -169,6 +190,7 @@ function renderLibrary(){
   const scores=courses.flatMap(c=>c.lessons.flatMap(l=>l.scores||[]));
   $("#kpis").innerHTML=[[total,"courses"],[lessons,"lessons"],[done,"completed"],[scores.length?Math.round(scores.reduce((a,b)=>a+b,0)/scores.length)+"%":"—","avg quiz score"]]
     .map(k=>'<div class="rpw-kpi"><div class="num">'+k[0]+'</div><div class="lbl">'+k[1]+'</div></div>').join("");
+  paintContinue();
   if(tab==="courses")renderCourses();
   else if(tab==="grades")renderGrades();
   else renderBadges();
@@ -216,12 +238,30 @@ function renderBadges(){
     ["🏆","Course Conqueror","Finish an entire course",()=>courses.some(c=>c.lessons.length&&c.lessons.every(l=>l.done))],
     ["🎯","Sharpshooter","Score 100% on any quiz",()=>courses.flatMap(c=>c.lessons).flatMap(l=>l.scores||[]).some(s=>s===100)],
     ["🧠","Scholar","Average ≥80% across quizzes",()=>avg()>80],
-    ["🏛️","Architect","Create your own course",()=>courses.length>1]
+    ["🏛️","Architect","Create your own course",()=>courses.length>1],
+    ["💯","Perfectionist","Ace three quizzes with 100%",()=>courses.flatMap(c=>c.lessons).flatMap(l=>l.scores||[]).filter(x=>x===100).length>=3]
   ];
   $("#badgeGrid").innerHTML=badges.map(b=>'<div class="badge-tile'+(b[3]()?" earned":"")+'"><div style="font-size:30px">'+b[0]+'</div><b class="small">'+b[1]+'</b><p class="tiny faint">'+b[2]+'</p></div>').join("");
 }
 function countDone(){return courses.reduce((a,c)=>a+c.lessons.filter(l=>l.done).length,0);}
 function avg(){const s=courses.flatMap(c=>c.lessons).flatMap(l=>l.scores||[]);return s.length?s.reduce((a,b)=>a+b,0)/s.length:0;}
+
+
+/* ---------- continue learning strip ---------- */
+function nextUp(){
+ for(const c of courses){const i=c.lessons.findIndex(l=>!l.done);if(i>=0)return{c,l:c.lessons[i],i};}
+ return null;
+}
+function paintContinue(){
+ const host=$("#contStrip");if(!host)return;
+ const n=nextUp();
+ if(!n||view!=="library"){host.innerHTML="";return;}
+ const totalDone=n.c.lessons.filter(l=>l.done).length;
+ host.innerHTML='<div class="cont-strip"><div style="font-size:26px">'+(n.c.emoji||"📘")+'</div>'+
+  '<div class="grow"><b class="small">Continue where you left off</b><div class="tiny muted">'+esc(n.c.title)+" → Lesson "+(n.i+1)+": "+esc(n.l.title)+" · "+totalDone+"/"+n.c.lessons.length+" done</div></div>"+
+  '<button class="rpw-btn sm primary" id="btnCont">Resume →</button></div>';
+ $("#btnCont").onclick=()=>openCourse(n.c.id);
+}
 
 /* ---------- course view ---------- */
 function openCourse(id){
@@ -233,6 +273,7 @@ function paintCourse(){
   $("#cvTitle").textContent=(c.emoji?c.emoji+" ":"")+c.title;
   $("#cvMeta").textContent=c.subject||"General"+" · "+c.lessons.length+" lessons · "+doneN+" completed";
   $("#cvBar").style.width=p+"%";
+  $("#btnCert").classList.toggle("hidden",p<100);
   const box=$("#lessonList");box.innerHTML="";
   if(!c.lessons.length){box.innerHTML='<div class="rpw-empty"><div class="big">📄</div><h3>No lessons yet</h3><p>Add your first lesson to build this course.</p></div>';return;}
   c.lessons.forEach((l,i)=>{
@@ -260,6 +301,32 @@ function openLesson(i){
     if(l.done)RPW2.confetti();
   };
 }
+
+$("#btnCert").onclick=()=>{
+ const c=activeCourse;
+ const scores=c.lessons.flatMap(l=>l.scores||[]);
+ const avgS=scores.length?Math.round(scores.reduce((a,b)=>a+b,0)/scores.length):null;
+ const m=RPW2.modal("🎓 Course certificate",
+  '<div id="certBox" style="text-align:center;padding:34px 22px;border:2px solid #c9a227;border-radius:16px;background:linear-gradient(160deg,color-mix(in srgb,#f1c40f 8%,var(--panel-solid)),var(--panel-solid))">'+
+   '<div style="font-size:44px">🎓</div>'+
+   '<h1 style="margin:6px 0;font-size:24px" class="grad-text">Certificate of Completion</h1>'+
+   '<p class="tiny faint" style="letter-spacing:.18em;text-transform:uppercase">RPBeduWorld² · LearnMaster X</p>'+
+   '<p class="muted mt-3">This certifies that</p><h2 id="certName" style="margin:4px 0"></h2>'+
+   '<p class="muted">has successfully completed</p><h3 style="margin:4px 0">'+esc(c.title)+'</h3>'+
+   '<p class="tiny muted mt-1">'+c.lessons.length+' lessons'+(avgS!=null?" · average score "+avgS+"%":"")+"</p>"+
+   '<p class="tiny faint mt-3">'+new Date().toLocaleDateString(undefined,{year:"numeric",month:"long",day:"numeric"})+"</p></div>"+
+  '<div class="row spread mt-3"><input class="rpw-input grow" id="certIn" placeholder="Your name for the certificate" style="max-width:240px">'+
+   '<button class="rpw-btn primary" id="certPrint">🖨️ Print / Save PDF</button></div>');
+ const inp=m.el.querySelector("#certIn");
+ try{inp.value=(JSON.parse(RPW2.store.get("learnmaster.profile","{}")).name)||"";}catch(e){}
+ m.el.querySelector("#certPrint").onclick=()=>{
+  const nm=inp.value.trim()||"A Dedicated Scholar";
+  m.el.querySelector("#certName").textContent=nm;
+  RPW2.store.set("learnmaster.profile",JSON.stringify({name:nm}));
+  setTimeout(()=>window.print(),80);
+ };
+};
+
 $("#btnBackLib").onclick=()=>{show("library");renderLibrary();};
 $("#btnBackCourse").onclick=()=>show("course");
 
@@ -267,9 +334,10 @@ $("#btnBackCourse").onclick=()=>show("course");
 $("#btnStartQuiz").onclick=()=>{
   const l=activeCourse.lessons[activeLesson];
   if(!l.quiz||!l.quiz.length){toast("This lesson has no quiz questions","info");return;}
-  quiz={items:l.quiz,idx:0,score:0,lesson:l};
+  quiz={items:l.quiz,idx:0,score:0,lesson:l,misses:[]};
+  $("#qzDoneWrap").classList.add("hidden");
   $("#quizBox").classList.remove("hidden");
-  $("#quizBox").scrollIntoView({behavior:"smooth"});
+  if($("#quizBox").scrollIntoView)$("#quizBox").scrollIntoView({behavior:"smooth"});
   paintQZ();
 };
 function paintQZ(){
@@ -277,27 +345,100 @@ function paintQZ(){
   $("#qzProg").textContent=(quiz.idx+1)+" / "+quiz.items.length;
   $("#qzBar").style.width=(quiz.idx/quiz.items.length*100)+"%";
   $("#qzQ").textContent=it.q;
-  $("#qzOpts").innerHTML=it.options.map((o,i)=>'<button class="quiz-opt" data-i="'+i+'" style="display:block;width:100%;text-align:left;padding:12px 15px;margin-bottom:8px;border-radius:10px;border:1px solid var(--glass-brd);background:var(--input-bg);color:var(--txt);cursor:pointer;font-size:14px">'+esc(o)+'</button>').join("");
-  [...$("#qzOpts").children].forEach(b=>b.onclick=()=>{
-    it.options.forEach(()=>{}); 
-    [...$("#qzOpts").children].forEach((el,i)=>{el.disabled=true;if(i===it.answer)el.style.borderColor="var(--rpw-ok)";else if(el===b)el.style.borderColor="var(--rpw-err)";});
-    if(+b.dataset.i===it.answer){quiz.score++;RPW2.sfx.ok();}else RPW2.sfx.err();
+  $("#qzOpts").innerHTML=it.options.map((o,i)=>'<button class="quiz-opt" data-i="'+i+'"><span class="key">'+"ABCD"[i]+"</span><span>"+esc(o)+"</span></button>").join("");
+  const btns=[...$("#qzOpts").children];
+  if(qzKeys)document.removeEventListener("keydown",qzKeys);
+  qzKeys=e=>{
+   const i="abcd1234".indexOf(e.key.toLowerCase());
+   if(i>=0&&i<btns.length&&!btns[0].disabled){e.preventDefault();btns[i].click();}
+  };
+  document.addEventListener("keydown",qzKeys);
+  btns.forEach(b=>b.onclick=()=>{
+    [...$("#qzOpts").children].forEach((el,i)=>{
+      el.disabled=true;
+      if(i===it.answer)el.classList.add("right");
+      else if(el===b)el.classList.add("wrong");
+    });
+    if(+b.dataset.i===it.answer){quiz.score++;RPW2.sfx.ok();}else{RPW2.sfx.err();quiz.misses.push(it);}
     setTimeout(nextQZ,800);
   });
 }
+let qzKeys=null;
 function nextQZ(){
   quiz.idx++;
   if(quiz.idx>=quiz.items.length){
-    const pct=Math.round(quiz.score/quiz.items.length*100);
+    if(qzKeys){document.removeEventListener("keydown",qzKeys);qzKeys=null;}
+    const pct=Math.round(quiz.score/quiz.items.length*100),n=quiz.items.length,mN=quiz.misses.length;
     quiz.lesson.scores=(quiz.lesson.scores||[]).concat([pct]);
-    quiz.lesson.done=true;save();renderLibrary.__skip=1;
+    if(pct>=60)quiz.lesson.done=true;
+    save();
     $("#qzOpts").innerHTML="";$("#qzQ").textContent="";
     const w=$("#qzDoneWrap");w.classList.remove("hidden");
-    w.innerHTML='<div style="font-size:46px">'+(pct>=80?"🏆":"💪")+'</div><h3 class="grad-text" style="font-size:26px">'+pct+'%</h3><p class="muted small mt-1">'+quiz.score+' / '+quiz.items.length+' correct — saved to gradebook</p><button class="rpw-btn primary mt-2" onclick="document.getElementById(\'quizBox\').classList.add(\'hidden\');document.getElementById(\'qzDoneWrap\').classList.add(\'hidden\');document.dispatchEvent(new Event(\'qz-done\'));">Finish</button>';
+    w.innerHTML='<div style="font-size:46px">'+(pct>=80?"🏆":pct>=60?"💪":"📚")+'</div><h3 class="grad-text" style="font-size:26px">'+pct+"%</h3>"+
+     '<p class="muted small mt-1">'+quiz.score+" / "+n+' correct'+(pct<60?" — below the 60% pass mark. Review the material and retry!":" — saved to gradebook")+"</p>"+
+     '<div class="row mt-2" style="justify-content:center;gap:9px;flex-wrap:wrap">'+
+     (mN?'<button class="rpw-btn ghost" id="qzMRetry">↻ Retry '+mN+" missed</button>":"")+
+     '<button class="rpw-btn primary" id="qzFinish">Finish</button></div>';
+    w.querySelector("#qzFinish").onclick=()=>{ $("#quizBox").classList.add("hidden");w.classList.add("hidden");paintCourse();renderLibrary(); };
+    const mr=w.querySelector("#qzMRetry");
+    if(mr)mr.onclick=()=>{
+      const items=(function(a){for(let i=a.length-1;i>0;i--){const j=(Math.random()*(i+1))|0;[a[i],a[j]]=[a[j],a[i]];}return a;})(quiz.misses.map(x=>Object.assign({},x)));
+      quiz={items,idx:0,score:0,lesson:quiz.lesson,misses:[],retrying:true};
+      w.classList.add("hidden");paintQZ();
+    };
     if(pct>=80)RPW2.confetti();else RPW2.sfx.level();
   } else paintQZ();
 }
 document.addEventListener("qz-done",()=>paintCourse());
+
+
+/* ✨ generate quiz questions from this lesson's own content */
+$("#btnGenQuiz").onclick=()=>{
+ const l=activeCourse.lessons[activeLesson];
+ const text=(l.body||"").replace(/<[^>]+>/g," ").trim();
+ if(text.length<80){toast("Add lesson content first — then I can forge questions from it","info");return;}
+ RPW2.AI.studio({
+  title:"✨ Quiz Forge — from this lesson",
+  subtitle:"Generate quiz questions strictly from this lesson material.",
+  fields:[{id:"n",label:"Questions",type:"number",value:4,min:2,max:10}],
+  buildPrompt:v=>`Create ${v.n} multiple-choice quiz questions strictly from this lesson content. Respond ONLY as JSON array of {"q":"...","options":["a","b","c","d"],"answer":<index>}. Distractors must be plausible.\n\nLESSON:\n${text.slice(0,3500)}`,
+  offline:v=>{
+   const g=RPW2.AI.gen,r=g.rng(l.title+Math.random()),n=Math.max(2,Math.min(10,+v.n||4)),out=[];
+   const sents=text.split(/(?<=[.!?])\s+/).map(x=>x.trim()).filter(x=>x.split(/\s+/).length>=7&&x.length>=40&&x.length<=240);
+   const kwAll=[...new Set(sents.flatMap(x=>g.kw(x)).filter(k=>k.length>4))];
+   for(const sent of g.shuf(sents,r)){
+    const ks=g.kw(sent).filter(k=>k.length>4&&sent.includes(k));
+    if(!ks.length)continue;
+    const ans=g.pick(ks,r);let q;
+    try{q=sent.replace(new RegExp(ans.replace(/[.*+?^\${}()|[\]\\]/g,"\\$&"),"i"),"_____");}catch(e){continue;}
+    if(q===sent)continue;
+    const wrongs=g.shuf(kwAll.filter(x=>x!==ans),r).slice(0,3);
+    while(wrongs.length<3){const f=["mechanism","structure","principle"][wrongs.length];if(!wrongs.includes(f))wrongs.push(f);}
+    const opts=g.shuf([ans,...wrongs],r);
+    out.push({q,options:opts,answer:opts.indexOf(ans)});
+    if(out.length>=n)break;
+   }
+   return out;
+  },
+  preview:d=>d.map(q=>`<div class="ai-item"><b>${RPW2.escapeHtml(String(q.q).slice(0,120))}</b><br><span class="small" style="color:#2ecc71">✔ ${RPW2.escapeHtml(String((q.options&&q.options[q.answer]!=null)?q.options[q.answer]:q.answer).slice(0,90))}</span></div>`).join(""),
+  validate:d=>{
+   const arr=(Array.isArray(d)?d:d.questions||[]).map(q=>{
+     if(Array.isArray(q))return {q:String(q[0]||""),options:[String(q[1])].concat((q[2]||[]).map(String)),answer:0};
+     const opts=(q.options||[]).map(String);
+     return {q:String(q.q||""),options:opts,answer:Math.max(0,Math.min(opts.length-1,+q.answer||0))};
+   }).filter(x=>x.q&&x.options.length>=2);
+   if(!arr.length)throw new Error("No usable questions found");
+   return arr;
+  },
+  onData:(d,src,close)=>{
+   l.quiz=(l.quiz||[]).concat(d);
+   save();close();
+   toast(d.length+" questions added to \""+l.title+"\" ("+(src==="gemini"?"Gemini":"smart generator")+")","ok");
+   openLesson(activeLesson);
+   RPW2.confetti&&RPW2.confetti();
+  }
+ });
+};
 
 /* ---------- create/import/export ---------- */
 $("#btnNewCourse").onclick=()=>{
@@ -339,7 +480,8 @@ $("#btnExportAll").onclick=()=>{
 $("#btnImport").onclick=async()=>{
   const f=await RPW2.pickFile(".json,application/json");if(!f)return;
   try{
-    const j=JSON.parse(await f.text());
+    const readText=(fl)=>new Promise((res,rej)=>{if(typeof fl.text==="function")return fl.text().then(res,rej);const r=new FileReader();r.onload=()=>res(r.result);r.onerror=()=>rej(new Error("read error"));r.readAsText(fl);});
+    const j=JSON.parse(await readText(f));
     // accept: internal export {courses:[...]}, universal rpw2.course.v1, legacy LGAI/LMP shapes
     if(j.courses){ j.courses.forEach(c=>{c.id=RPW2.uid();courses.unshift(c);}); save();renderLibrary();toast(j.courses.length+" course(s) imported","ok");return; }
     let title=j.title||"Imported course", subject=j.subject||"", lessons=[];
@@ -377,9 +519,10 @@ RPW2.AI.attachFab(()=>RPW2.AI.studio({
  fields:[
   {id:"topic",label:"Course topic",placeholder:"e.g. Intro to Astronomy, Spanish tenses, Web security"},
   {id:"lessons",label:"Lessons",type:"number",value:4,min:2,max:6},
-  {id:"level",label:"Level",type:"select",options:[{v:"beginner",t:"Beginner"},{v:"intermediate",t:"Intermediate"},{v:"advanced",t:"Advanced"}]}
+  {id:"level",label:"Level",type:"select",options:[{v:"beginner",t:"Beginner"},{v:"intermediate",t:"Intermediate"},{v:"advanced",t:"Advanced"}]},
+  {id:"notes",label:"Source material (optional — lessons will draw from this)",type:"textarea",placeholder:"Paste lecture notes, a syllabus or reference text…"}
  ],
- buildPrompt:v=>`Design a complete ${v.level} mini-course about "${v.topic}" with exactly ${v.lessons} lessons. Respond ONLY as JSON {"title":"...","subject":"...","emoji":"...","lessons":[{"title":"...","html":"<h3>...</h3><p>...</p> (150-250 words)","quiz":[{"q":"...","options":["a","b","c","d"],"answer":0}]} ]}. Each lesson gets 3 quiz questions.`,
+ buildPrompt:v=>`Design a complete ${v.level} mini-course about "${v.topic}" with exactly ${v.lessons} lessons.${(v.notes||"").trim()?" Base all lesson content strictly on this source material:\n\n"+v.notes.trim().slice(0,3000):""} Respond ONLY as JSON {"title":"...","subject":"...","emoji":"...","lessons":[{"title":"...","html":"<h3>...</h3><p>...</p> (150-250 words)","quiz":[{"q":"...","options":["a","b","c","d"],"answer":0}]}]}.`,
  offline:v=>{
   const g=RPW2.AI.gen,r=g.rng(v.topic+Math.random()),n=Math.min(6,Math.max(2,+v.lessons||4));
   const secs=g.outline(v.topic,n+1,r),t=g.T(v.topic);
